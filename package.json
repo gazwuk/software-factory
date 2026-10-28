@@ -1,6 +1,6 @@
 {
   "name": "@gazwuk/software-factory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Claude Code software factory: /factory takes a feature from spec to merged code through a builder, parallel reviewers and an approver, with a live dashboard.",
   "type": "module",
   "bin": {
