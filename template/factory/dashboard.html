@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Software Factory</title>
+<style>
+  :root {
+    --bg: #f6f6f4;
+    --surface: #ffffff;
+    --column: #ecece8;
+    --border: #dddcd6;
+    --text: #1d1d1b;
+    --muted: #6b6a64;
+    --faint: #9a998f;
+    --accent: #3a5bd9;
+    --pass: #1f7a4d;
+    --pass-bg: #e3f3ea;
+    --changes: #a3560b;
+    --changes-bg: #fbeedd;
+    --pending: #8a897f;
+    --pending-bg: #efefeb;
+    --human: #b4570a;
+    --human-bg: #fff5ea;
+    --danger: #b42318;
+    --danger-bg: #fdecea;
+    --code-bg: #f1f0ec;
+    --shadow: 0 1px 2px rgba(20, 20, 15, .06), 0 2px 8px rgba(20, 20, 15, .04);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413;
+      --surface: #1e1e1c;
+      --column: #191918;
+      --border: #2e2e2b;
+      --text: #ecebe6;
+      --muted: #a09f97;
+      --faint: #74736c;
+      --accent: #8aa2ff;
+      --pass: #6fd3a0;
+      --pass-bg: #17301f;
+      --changes: #f2b366;
+      --changes-bg: #3a2812;
+      --pending: #8f8e86;
+      --pending-bg: #262624;
+      --human: #f5a35b;
+      --human-bg: #2c2016;
+      --danger: #ff8a7e;
+      --danger-bg: #3a1a17;
+      --code-bg: #262624;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  button { font: inherit; color: inherit; }
+
+  /* Header */
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 18px 24px; border-bottom: 1px solid var(--border);
+  }
+  .brand { font-weight: 650; font-size: 16px; letter-spacing: -.01em; margin-right: auto; }
+  .stat { color: var(--muted); font-size: 13px; }
+  .stat b { color: var(--text); font-weight: 600; }
+  .stat.human b { color: var(--human); }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .live::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--pass);
+  }
+  .live.down::before { background: var(--danger); }
+
+  .banner {
+    margin: 16px 24px 0; padding: 12px 14px; border-radius: 8px;
+    background: var(--danger-bg); color: var(--danger); font-size: 13px;
+  }
+  .banner code { background: transparent; }
+
+  /* Board */
+  main {
+    display: grid; gap: 12px; padding: 20px 24px 40px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    align-items: start;
+  }
+  @media (max-width: 1180px) { main { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 720px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .column { background: var(--column); border-radius: 12px; padding: 10px; min-height: 120px; }
+  .column h2 {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin: 2px 4px 10px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  }
+  .column h2 .count { font-weight: 500; color: var(--faint); }
+  .column.human h2 { color: var(--human); }
+  .cards { display: flex; flex-direction: column; gap: 8px; }
+  .empty-col { color: var(--faint); font-size: 12px; padding: 8px 4px; }
+
+  .card {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; box-shadow: var(--shadow);
+    transition: border-color .15s, transform .15s;
+  }
+  .card:hover { border-color: var(--faint); }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card.human { border-color: var(--human); background: var(--human-bg); }
+  .card.failed { border-color: var(--danger); background: var(--danger-bg); }
+  .card.done { opacity: .72; }
+  .card-id { font-size: 11px; color: var(--muted); }
+  .card-title { font-weight: 600; margin: 2px 0 8px; line-height: 1.35; overflow-wrap: anywhere; }
+  .card-id { overflow-wrap: anywhere; }
+  .card-id .issue { margin-left: 6px; color: var(--accent); }
+  .card-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+  .note { margin-top: 8px; font-size: 12px; color: var(--human); }
+  .card.failed .note { color: var(--danger); }
+
+  .rounds { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .round { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .round.old { opacity: .5; }
+  .round-label { font-size: 10px; color: var(--faint); width: 20px; flex: none; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; line-height: 1; padding: 4px 7px; border-radius: 999px;
+    background: var(--pending-bg); color: var(--pending);
+  }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .chip.pass { background: var(--pass-bg); color: var(--pass); }
+  .chip.changes { background: var(--changes-bg); color: var(--changes); }
+  .chip.waiting::before { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+
+  .empty {
+    grid-column: 1 / -1; text-align: center; color: var(--muted);
+    padding: 64px 16px; border: 1px dashed var(--border); border-radius: 12px;
+  }
+  .empty code { background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+
+  /* Drawer */
+  .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .25); }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100vw);
+    background: var(--surface); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0, 0, 0, .12);
+  }
+  .drawer[hidden], .scrim[hidden] { display: none; }
+  .drawer-head { padding: 18px 20px 12px; border-bottom: 1px solid var(--border); }
+  .drawer-top { display: flex; align-items: flex-start; gap: 12px; }
+  .drawer-title { font-size: 17px; font-weight: 650; margin: 2px 0 4px; flex: 1; }
+  .drawer-sub { font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+  .drawer-sub a { color: var(--accent); }
+  .close {
+    border: 1px solid var(--border); background: transparent; border-radius: 8px;
+    width: 32px; height: 32px; cursor: pointer; font-size: 16px; flex: none;
+  }
+  .close:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .stage {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    background: var(--pending-bg); color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+  }
+  .stage.human { background: var(--human-bg); color: var(--human); }
+  .stage.failed { background: var(--danger-bg); color: var(--danger); }
+  .stage.done { background: var(--pass-bg); color: var(--pass); }
+
+  .tabs { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .tab-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .tab-group-label { font-size: 11px; color: var(--faint); width: 64px; flex: none; }
+  .tab {
+    border: 1px solid var(--border); background: transparent; border-radius: 999px;
+    padding: 3px 10px; font-size: 12px; cursor: pointer; color: var(--muted);
+  }
+  .tab.pass { color: var(--pass); }
+  .tab.changes { color: var(--changes); }
+  .tab[aria-selected="true"] { background: var(--text); border-color: var(--text); color: var(--surface); }
+
+  .doc { flex: 1; overflow-y: auto; padding: 8px 24px 40px; }
+  .doc-path { font-size: 11px; color: var(--faint); margin: 12px 0 4px; }
+  .verdict {
+    display: inline-block; margin: 8px 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .05em;
+    padding: 4px 10px; border-radius: 6px; background: var(--pending-bg); color: var(--muted);
+  }
+  .verdict.PASS, .verdict.APPROVE { background: var(--pass-bg); color: var(--pass); }
+  .verdict.CHANGES { background: var(--changes-bg); color: var(--changes); }
+  .verdict.ESCALATE { background: var(--human-bg); color: var(--human); }
+  .doc-empty { color: var(--muted); padding: 24px 0; }
+
+  .md h1, .md h2, .md h3, .md h4 { line-height: 1.3; margin: 1.4em 0 .5em; letter-spacing: -.01em; }
+  .md h1 { font-size: 20px; }
+  .md h2 { font-size: 16px; }
+  .md h3 { font-size: 14px; }
+  .md h4, .md h5, .md h6 { font-size: 13px; color: var(--muted); }
+  .md p, .md ul, .md ol, .md pre, .md table, .md blockquote { margin: 0 0 .9em; }
+  .md ul, .md ol { padding-left: 1.4em; }
+  .md li { margin: .2em 0; }
+  .md li > ul, .md li > ol { margin: .2em 0; }
+  .md code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
+  .md pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; line-height: 1.45; }
+  .md pre code { background: none; padding: 0; }
+  .md blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--muted); }
+  .md table { border-collapse: collapse; display: block; overflow-x: auto; font-size: 13px; }
+  .md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+  .md th { background: var(--column); font-weight: 600; }
+  .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.5em 0; }
+  .md a { color: var(--accent); }
+  .md .task { color: var(--muted); margin-right: 4px; }
+
+  @media (max-width: 640px) {
+    header { padding: 14px 16px; }
+    main { padding: 16px; }
+    .banner { margin: 16px 16px 0; }
+    .drawer-head { padding: 14px 16px 10px; }
+    .doc { padding: 8px 16px 32px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chip.waiting::before { animation: none; }
+    .card { transition: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Software Factory</div>
+  <div class="stat" id="stat-active"></div>
+  <div class="stat human" id="stat-human"></div>
+  <div class="live" id="live">Connecting…</div>
+</header>
+<div class="banner" id="banner" hidden></div>
+<main id="board" aria-live="polite"></main>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
+  <div class="drawer-head">
+    <div class="drawer-top">
+      <div style="flex:1">
+        <div class="card-id mono" id="drawer-id"></div>
+        <div class="drawer-title" id="drawer-title"></div>
+        <div class="drawer-sub" id="drawer-sub"></div>
+      </div>
+      <button class="close" id="drawer-close" aria-label="Close">✕</button>
+    </div>
+    <div class="tabs" id="tabs" role="tablist"></div>
+  </div>
+  <div class="doc" id="doc"></div>
+</aside>
+
+<script>
+(() => {
+  const POLL_MS = 2000;
+  const COLUMNS = [
+    { label: 'Spec', stages: ['spec'] },
+    { label: 'Build', stages: ['build'] },
+    { label: 'Review', stages: ['review'] },
+    { label: 'Approval', stages: ['approval'] },
+    { label: 'Needs you', stages: ['needs-human', 'failed'], cls: 'human' },
+    { label: 'Shipped', stages: ['merged', 'pr-open'] },
+  ];
+  const ACTIVE = ['spec', 'build', 'review', 'approval'];
+  const STAGE_LABEL = {
+    spec: 'Spec', build: 'Build', review: 'Review', approval: 'Approval',
+    'needs-human': 'Needs you', failed: 'Failed', merged: 'Merged', 'pr-open': 'PR open',
+  };
+
+  const $ = (id) => document.getElementById(id);
+  let boardText = null;
+  let board = { jobs: [] };
+  let openJob = null;      // { id, updatedAt, docs, selected, opener }
+
+  // ---------- helpers ----------
+
+  function h(tag, attrs, ...children) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === 'class') el.className = v;
+      else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of children.flat()) {
+      if (c == null || c === false) continue;
+      el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return el;
+  }
+
+  function ago(iso) {
+    const t = Date.parse(iso);
+    if (!t) return '';
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 45) return 'just now';
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    return `${Math.round(s / 86400)}d ago`;
+  }
+
+  function verdictClass(v) {
+    return v === 'PASS' ? 'pass' : v === 'CHANGES' ? 'changes' : '';
+  }
+
+  function safeHttpUrl(u) {
+    return typeof u === 'string' && /^https?:\/\//i.test(u) ? u : null;
+  }
+
+  function stageClass(stage) {
+    if (stage === 'needs-human') return 'human';
+    if (stage === 'failed') return 'failed';
+    if (stage === 'merged' || stage === 'pr-open') return 'done';
+    return '';
+  }
+
+  // ---------- markdown ----------
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function inline(s) {
+    const codes = [];
+    s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+    s = esc(s);
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text, url) =>
+      /^https?:\/\//i.test(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>` : text);
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^\w*])\*([^*\s][^*]*?)\*(?!\w)/g, '$1<em>$2</em>');
+    s = s.replace(/(^|[^\w])_([^_\s][^_]*?)_(?!\w)/g, '$1<em>$2</em>');
+    s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    return s.replace(/\u0000(\d+)\u0000/g, (_, n) => `<code>${esc(codes[n])}</code>`);
+  }
+
+  function listItem(text) {
+    const m = text.match(/^\[( |x|X)\]\s+(.*)$/);
+    if (!m) return inline(text);
+    return `<span class="task">${m[1] === ' ' ? '☐' : '☑'}</span>${inline(m[2])}`;
+  }
+
+  function renderList(items) {
+    let out = '';
+    const stack = [];
+    for (const it of items) {
+      while (stack.length && it.indent < stack[stack.length - 1].indent) {
+        out += `</li></${stack.pop().tag}>`;
+      }
+      const top = stack[stack.length - 1];
+      if (!top || it.indent > top.indent) {
+        const tag = it.ordered ? 'ol' : 'ul';
+        stack.push({ indent: it.indent, tag });
+        out += `<${tag}>`;
+      } else {
+        out += '</li>';
+      }
+      out += `<li>${listItem(it.text)}`;
+    }
+    while (stack.length) out += `</li></${stack.pop().tag}>`;
+    return out;
+  }
+
+  function md(src) {
+    const lines = src.replace(/\r\n?/g, '\n').split('\n');
+    const para = [];
+    let html = '';
+    let i = 0;
+    const flush = () => {
+      if (para.length) { html += `<p>${inline(para.join(' '))}</p>`; para.length = 0; }
+    };
+    const cells = (row) => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+
+    while (i < lines.length) {
+      const line = lines[i];
+      let m;
+      if (/^\s*```/.test(line)) {
+        flush();
+        const buf = [];
+        i++;
+        while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]);
+        i++;
+        html += `<pre><code>${esc(buf.join('\n'))}</code></pre>`;
+      } else if (/^\s*$/.test(line)) {
+        flush(); i++;
+      } else if ((m = line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/))) {
+        flush();
+        html += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`;
+        i++;
+      } else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+        flush(); html += '<hr>'; i++;
+      } else if (/^\s*>/.test(line)) {
+        flush();
+        const buf = [];
+        while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
+        html += `<blockquote>${md(buf.join('\n'))}</blockquote>`;
+      } else if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) {
+        flush();
+        const head = cells(line);
+        i += 2;
+        let t = `<table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>`;
+        while (i < lines.length && /^\s*\|/.test(lines[i])) {
+          t += `<tr>${cells(lines[i++]).map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`;
+        }
+        html += `${t}</tbody></table>`;
+      } else if (/^\s*([-*+]|\d+[.)])\s+/.test(line)) {
+        flush();
+        const items = [];
+        while (i < lines.length) {
+          const l = lines[i];
+          const lm = l.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+          if (lm) { items.push({ indent: lm[1].length, ordered: /\d/.test(lm[2]), text: lm[3] }); i++; }
+          else if (items.length && /^\s{2,}\S/.test(l)) { items[items.length - 1].text += ' ' + l.trim(); i++; }
+          else break;
+        }
+        html += renderList(items);
+      } else {
+        para.push(line.trim()); i++;
+      }
+    }
+    flush();
+    return html;
+  }
+
+  // ---------- board ----------
+
+  function card(job) {
+    const cls = stageClass(job.stage);
+    const rounds = Array.isArray(job.rounds) ? job.rounds : [];
+    const reviewers = Array.isArray(job.reviewers) ? job.reviewers : [];
+    const reviewing = job.stage === 'review';
+
+    const roundRows = rounds.map((r, idx) => {
+      const isLast = idx === rounds.length - 1;
+      return h('div', { class: `round${isLast ? '' : ' old'}` },
+        h('span', { class: 'round-label mono' }, `R${idx + 1}`),
+        reviewers.map((name) => {
+          const v = (r && r[name]) || 'pending';
+          const waiting = reviewing && isLast && v === 'pending';
+          return h('span', {
+            class: `chip ${verdictClass(v)}${waiting ? ' waiting' : ''}`,
+            title: `${name}: ${v}`,
+          }, name);
+        }));
+    });
+
+    const roundText = job.round ? `Round ${job.round}/${job.roundLimit || job.round}` : '';
+    return h('button', {
+      class: `card ${cls}`, 'data-id': job.id, type: 'button',
+      onclick: (e) => openDrawer(job.id, e.currentTarget),
+    },
+      h('div', { class: 'card-id mono' }, job.id, job.issue ? h('span', { class: 'issue' }, `#${job.issue}`) : null),
+      h('div', { class: 'card-title' }, job.title || job.feature || job.id),
+      rounds.length ? h('div', { class: 'rounds' }, roundRows) : null,
+      h('div', { class: 'card-meta' },
+        h('span', null, job.stage === 'pr-open' ? 'PR open' : job.stage === 'failed' ? 'Failed' : roundText),
+        h('span', null, ago(job.updatedAt))),
+      job.note && (cls === 'human' || cls === 'failed') ? h('div', { class: 'note' }, job.note) : null,
+    );
+  }
+
+  function render() {
+    const jobs = Array.isArray(board.jobs) ? board.jobs : [];
+    const focusedId = document.activeElement && document.activeElement.dataset
+      ? document.activeElement.dataset.id : null;
+
+    const active = jobs.filter((j) => ACTIVE.includes(j.stage)).length;
+    const human = jobs.filter((j) => j.stage === 'needs-human' || j.stage === 'failed').length;
+    $('stat-active').innerHTML = `<b>${active}</b> active`;
+    $('stat-human').innerHTML = human ? `<b>${human}</b> need${human === 1 ? 's' : ''} you` : '';
+
+    const main = $('board');
+    main.replaceChildren();
+    if (!jobs.length) {
+      main.append(h('div', { class: 'empty' },
+        h('p', null, 'No jobs yet.'),
+        h('p', null, 'In Claude Code, run ', h('code', null, '/factory <feature>'), ' or ', h('code', null, '/factory next'), '.')));
+      return;
+    }
+
+    const byNewest = (a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
+    for (const col of COLUMNS) {
+      const colJobs = jobs.filter((j) => col.stages.includes(j.stage)).sort(byNewest);
+      main.append(h('section', { class: `column ${col.cls || ''}`, 'aria-label': col.label },
+        h('h2', null, col.label, h('span', { class: 'count' }, String(colJobs.length))),
+        h('div', { class: 'cards' },
+          colJobs.length ? colJobs.map(card) : h('div', { class: 'empty-col' }, '—'))));
+    }
+
+    if (focusedId) {
+      const again = main.querySelector(`[data-id="${CSS.escape(focusedId)}"]`);
+      if (again) again.focus();
+    }
+  }
+
+  function setLive(ok, message) {
+    const live = $('live');
+    live.classList.toggle('down', !ok);
+    live.textContent = ok ? 'Live' : 'Offline';
+    const banner = $('banner');
+    banner.hidden = ok;
+    if (!ok) banner.innerHTML = message;
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('board.json', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`board.json returned ${res.status}`);
+      const text = await res.text();
+      setLive(true);
+      if (text !== boardText) {
+        let parsed;
+        try { parsed = JSON.parse(text); } catch { return; } // mid-write; try again next tick
+        boardText = text;
+        board = parsed;
+        render();
+        if (openJob) refreshDrawer();
+        else openFromHash();
+      }
+    } catch (err) {
+      setLive(false, location.protocol === 'file:'
+        ? 'Open this board through a local server: run <code>npx github:gazwuk/software-factory dashboard</code> in the repo.'
+        : `Can't reach board.json (${esc(String(err.message || err))}). Is the dashboard server still running?`);
+    } finally {
+      setTimeout(poll, POLL_MS);
+    }
+  }
+
+  // ---------- drawer ----------
+
+  function jobById(id) {
+    return (board.jobs || []).find((j) => j.id === id);
+  }
+
+  function docCandidates(job) {
+    const base = `jobs/${encodeURIComponent(job.id)}/`;
+    const docs = [
+      { group: 'Job', label: 'Request', path: `${base}request.md` },
+      { group: 'Job', label: 'Spec', path: `${base}spec.md` },
+      { group: 'Job', label: 'Build', path: `${base}build.md` },
+    ];
+    const reviewers = Array.isArray(job.reviewers) ? job.reviewers : [];
+    for (let r = 0; r <= (job.round || 0); r++) {
+      const group = `Round ${r}`;
+      const dir = `${base}round-${r}/`;
+      if (r > 0) {
+        for (const name of reviewers) {
+          const verdict = job.rounds && job.rounds[r - 1] ? job.rounds[r - 1][name] : null;
+          docs.push({ group, label: name, path: `${dir}review-${encodeURIComponent(name)}.md`, verdict });
+        }
+      }
+      docs.push({ group, label: 'human', path: `${dir}human.md` });
+      docs.push({ group, label: 'decision', path: `${dir}decision.md` });
+    }
+    docs.push({ group: 'Decision', label: 'Decision', path: `${base}decision.md` });
+    return docs;
+  }
+
+  async function loadDocs(job) {
+    const found = await Promise.all(docCandidates(job).map(async (d) => {
+      try {
+        const res = await fetch(d.path, { cache: 'no-store' });
+        if (!res.ok) return null;
+        const type = res.headers.get('content-type') || '';
+        if (type.includes('text/html')) return null; // SPA-style fallbacks
+        return { ...d, text: await res.text() };
+      } catch { return null; }
+    }));
+    return found.filter(Boolean);
+  }
+
+  function renderDrawerHead(job) {
+    $('drawer-id').textContent = job.id;
+    $('drawer-title').textContent = job.title || job.feature || job.id;
+    const sub = $('drawer-sub');
+    sub.replaceChildren(...[
+      h('span', { class: `stage ${stageClass(job.stage)}` }, STAGE_LABEL[job.stage] || job.stage),
+      job.branch ? h('span', { class: 'mono' }, job.branch) : null,
+      job.round ? h('span', null, `Round ${job.round}/${job.roundLimit || job.round}`) : null,
+      job.updatedAt ? h('span', null, `Updated ${ago(job.updatedAt)}`) : null,
+      job.issue && safeHttpUrl(job.issueUrl)
+        ? h('a', { href: job.issueUrl, target: '_blank', rel: 'noopener noreferrer' }, `Issue #${job.issue} ↗`)
+        : job.issue ? h('span', null, `Issue #${job.issue}`) : null,
+      safeHttpUrl(job.prUrl) ? h('a', { href: job.prUrl, target: '_blank', rel: 'noopener noreferrer' }, 'Pull request ↗') : null,
+    ].filter(Boolean));
+    if (job.note) sub.append(h('span', { style: 'color:var(--human);flex-basis:100%' }, job.note));
+  }
+
+  function renderTabs() {
+    const tabs = $('tabs');
+    tabs.replaceChildren();
+    const groups = new Map();
+    for (const d of openJob.docs) {
+      if (!groups.has(d.group)) groups.set(d.group, []);
+      groups.get(d.group).push(d);
+    }
+    for (const [group, docs] of groups) {
+      tabs.append(h('div', { class: 'tab-group' },
+        h('span', { class: 'tab-group-label' }, group),
+        docs.map((d) => h('button', {
+          class: `tab ${verdictClass(d.verdict)}`, role: 'tab', type: 'button',
+          'aria-selected': String(d.path === openJob.selected),
+          onclick: () => { openJob.selected = d.path; renderTabs(); renderDoc(); },
+        }, d.label))));
+    }
+  }
+
+  function renderDoc() {
+    const doc = $('doc');
+    const d = openJob.docs.find((x) => x.path === openJob.selected);
+    if (!d) {
+      doc.innerHTML = '<div class="doc-empty">No files yet. They appear here as agents write them.</div>';
+      return;
+    }
+    let text = d.text;
+    let badge = '';
+    const first = text.match(/^\s*(?:VERDICT:\s*)?(PASS|CHANGES|APPROVE|ESCALATE)\b[^\n]*\n?/);
+    if (first) {
+      badge = `<div class="verdict ${first[1]}">${first[1]}</div>`;
+      text = text.slice(first[0].length);
+    }
+    doc.innerHTML = `<div class="doc-path mono">${esc(decodeURIComponent(d.path))}</div>${badge}<div class="md">${md(text)}</div>`;
+    doc.scrollTop = 0;
+  }
+
+  async function refreshDrawer(force) {
+    const job = jobById(openJob.id);
+    if (!job) { closeDrawer(); return; }
+    renderDrawerHead(job);
+    if (!force && job.updatedAt === openJob.updatedAt) return;
+    openJob.updatedAt = job.updatedAt;
+    const id = openJob.id;
+    const docs = await loadDocs(job);
+    if (!openJob || openJob.id !== id) return;
+    const keep = docs.some((d) => d.path === openJob.selected);
+    openJob.docs = docs;
+    if (!keep) openJob.selected = docs.length ? docs[docs.length - 1].path : null;
+    renderTabs();
+    if (!keep || force) renderDoc();
+    else {
+      const scroll = $('doc').scrollTop;
+      renderDoc();
+      $('doc').scrollTop = scroll;
+    }
+  }
+
+  function openDrawer(id, opener) {
+    openJob = { id, updatedAt: null, docs: [], selected: null, opener };
+    $('doc').innerHTML = '<div class="doc-empty">Loading…</div>';
+    $('tabs').replaceChildren();
+    $('scrim').hidden = false;
+    $('drawer').hidden = false;
+    $('drawer-close').focus();
+    history.replaceState(null, '', `#job=${encodeURIComponent(id)}`);
+    refreshDrawer(true);
+  }
+
+  // Links like dashboard.html#job=003-rate-limiting open that job's drawer.
+  function openFromHash() {
+    const m = location.hash.match(/^#job=(.+)$/);
+    if (!m) return;
+    const id = decodeURIComponent(m[1]);
+    if (jobById(id) && (!openJob || openJob.id !== id)) openDrawer(id, null);
+  }
+
+  function closeDrawer() {
+    if (!openJob) return;
+    const opener = openJob.opener;
+    const id = openJob.id;
+    openJob = null;
+    $('scrim').hidden = true;
+    $('drawer').hidden = true;
+    history.replaceState(null, '', location.pathname + location.search);
+    const target = document.querySelector(`[data-id="${CSS.escape(id)}"]`) || opener;
+    if (target && target.focus) target.focus();
+  }
+
+  $('drawer-close').addEventListener('click', closeDrawer);
+  $('scrim').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+  window.addEventListener('hashchange', openFromHash);
+
+  setInterval(() => { if (!openJob) render(); }, 30000); // keep "x ago" fresh
+  poll();
+})();
+</script>
+</body>
+</html>

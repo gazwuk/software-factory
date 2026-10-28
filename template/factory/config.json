@@ -1,0 +1,20 @@
+{
+  "baseBranch": "main",
+  "maxRounds": 2,
+  "onApprove": "merge",
+  "tasks": {
+    "source": "backlog",
+    "githubLabel": "factory"
+  },
+  "models": {
+    "spec-writer": "opus",
+    "builder": "opus",
+    "approver": "opus"
+  },
+  "reviewers": {
+    "security": { "model": "opus", "enabled": true },
+    "ux": { "model": "sonnet", "enabled": true },
+    "ui": { "model": "sonnet", "enabled": true },
+    "code": { "model": "sonnet", "enabled": true }
+  }
+}

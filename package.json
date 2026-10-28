@@ -1,0 +1,33 @@
+{
+  "name": "@gazwuk/software-factory",
+  "version": "0.1.0",
+  "description": "A Claude Code software factory: /factory takes a feature from spec to merged code through a builder, parallel reviewers and an approver, with a live dashboard.",
+  "type": "module",
+  "bin": {
+    "software-factory": "bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "template"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gazwuk/software-factory.git"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "skill",
+    "subagents",
+    "software-factory"
+  ],
+  "author": "Gaz Ward",
+  "license": "MIT"
+}
