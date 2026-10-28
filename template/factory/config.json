@@ -6,15 +6,40 @@
     "source": "backlog",
     "githubLabel": "factory"
   },
+  "checks": {},
   "models": {
     "spec-writer": "opus",
     "builder": "opus",
     "approver": "opus"
   },
   "reviewers": {
-    "security": { "model": "opus", "enabled": true },
-    "ux": { "model": "sonnet", "enabled": true },
-    "ui": { "model": "sonnet", "enabled": true },
+    "security": {
+      "model": "sonnet",
+      "enabled": true,
+      "escalateModel": "opus",
+      "escalatePaths": [
+        "**/auth/**", "*auth*", "*session*", "*login*", "*password*", "*token*",
+        "*crypt*", "*permission*", "*secret*", "**/middleware/**", "**/migrations/**",
+        "*.sql", "package.json", "requirements*.txt", "pyproject.toml", "go.mod",
+        "Cargo.toml", "Gemfile", "Dockerfile", ".github/workflows/**"
+      ]
+    },
+    "ux": {
+      "model": "sonnet",
+      "enabled": true,
+      "paths": [
+        "*.{html,jsx,tsx,vue,svelte,astro}", "**/components/**", "**/pages/**",
+        "**/views/**", "**/templates/**", "**/locales/**", "**/i18n/**"
+      ]
+    },
+    "ui": {
+      "model": "sonnet",
+      "enabled": true,
+      "paths": [
+        "*.{css,scss,sass,less,html,jsx,tsx,vue,svelte,astro}", "**/components/**",
+        "**/styles/**", "**/assets/**", "**/public/**", "tailwind.config.*"
+      ]
+    },
     "code": { "model": "sonnet", "enabled": true }
   }
 }

@@ -61,3 +61,8 @@ Decisions you made where the request was ambiguous, so a human can spot a wrong 
 - Include error and edge cases in the criteria where they matter.
 - Never stop to ask questions. Make a reasonable call and record it under
   Assumptions.
+
+## When you finish
+
+Reply with one line only, such as `spec.md — 4 acceptance criteria, 2 assumptions`.
+Everything else belongs in the file.

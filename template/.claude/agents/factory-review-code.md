@@ -14,13 +14,13 @@ its absolute path) and follow it exactly: inputs, rules, and output format.
 - **Meets the spec:** every acceptance criterion in spec.md is implemented. Check the
   code, not just build.md's claims.
 - **Tests:** each acceptance criterion has a test that would fail without the change.
-  Run the project's test command in the worktree and report the result. Failing
-  tests are blocking.
+  The checks in round.md already passed on this commit, so judge the tests by reading
+  them rather than running the suite again.
 - **Correctness:** edge cases, error handling, null/empty input, concurrency, off-by-one.
 - **Scope:** nothing the spec didn't ask for. No unrelated refactors or drive-by
   changes.
 - **Conventions:** follows project.md's conventions and the style of the surrounding
-  code; lint and type checks pass if the project has them.
+  code.
 - **Clarity:** names, structure and comments make the code easy to follow. No dead
   code, debug output or commented-out blocks.
 - **Performance:** no obvious problems such as N+1 queries or unbounded loops over

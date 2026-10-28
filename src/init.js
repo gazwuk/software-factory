@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureGitignore, writeFile, writeManifest } from './install.js';
+import { ensureGitignore, ensureUsageHook, writeFile, writeManifest } from './install.js';
 import {
   CliError, INSTALL_CMD, TEMPLATE_DIR, USER_FILES,
   hasCommits, packageVersion, repoRoot, sha256, templateFiles,
@@ -35,12 +35,15 @@ export function init(cwd, log = console.log) {
   }
 
   const ignored = ensureGitignore(root);
+  const hook = ensureUsageHook(root);
   writeManifest(root, manifest);
 
   log(`Installed the software factory v${version} in ${root}\n`);
   for (const rel of created) log(`  + ${rel}`);
   for (const rel of kept) log(`  = ${rel} (already existed, left as is)`);
   if (ignored.length) log(`  + .gitignore: ${ignored.join(', ')}`);
+  if (hook === 'added') log('  + .claude/settings.json: SubagentStop hook that records what each agent costs');
+  else if (hook !== 'present') log(`  ! ${hook}`);
   log(`
 Next:
   1. Open Claude Code in this repo and run:   /factory setup

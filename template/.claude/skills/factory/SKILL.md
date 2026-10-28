@@ -27,6 +27,9 @@ agents **absolute** paths.
 | `factory/jobs/<id>/` | Job folder: `request.md`, `spec.md`, `build.md`, `round-N/`, `decision.md`. Always in the main checkout, never in a worktree. |
 | `.factory-worktrees/<id>/` | The builder's git worktree, on branch `factory/<id>`. |
 | `.claude/skills/factory/reviewer-contract.md` | Rules every reviewer follows. |
+| `.claude/skills/factory/round.mjs` | Runs the checks and picks the reviewers for a round. |
+| `.claude/skills/factory/usage.mjs` | Records each agent's tokens and cost (a SubagentStop hook runs it). |
+| `factory/usage.json` | Cost summary for the dashboard, rebuilt by usage.mjs. Read it; never write it. |
 
 ## Commands
 
@@ -51,8 +54,10 @@ feature — "Add CSV export" or "Setup CI for the docs site" start a **New job**
 request
   → spec-writer                    jobs/<id>/spec.md
   → builder (worktree + branch)    code, commits, jobs/<id>/build.md
-  → every enabled reviewer, in parallel → jobs/<id>/round-N/review-<name>.md
-  → WAIT FOR ALL
+  → round.mjs                      runs checks once, picks reviewers → round-N/round.md
+      checks fail → builder fixes (up to 2 tries) → round.mjs again; still failing → needs-human
+  → selected reviewers, in parallel → jobs/<id>/round-N/review-<name>.md
+  → WAIT FOR ALL (selected)
       any CHANGES, round < roundLimit  → resume builder on round-N, next round
       any CHANGES, round = roundLimit  → needs-human
       all PASS                         → approver
@@ -70,8 +75,17 @@ request
 - Reviews start with `VERDICT: PASS` or `VERDICT: CHANGES`. `decision.md` starts with
   `APPROVE` or `ESCALATE`. Read only the first line to get the verdict; treat any
   other first line as a missing file.
-- **WAIT FOR ALL.** A review round is done only when every reviewer's file exists in
-  the round folder. Never resume the builder mid-round.
+- **WAIT FOR ALL.** A review round is done only when every reviewer selected for it
+  has a file in the round folder. Never resume the builder mid-round.
+- **Don't do round.mjs's job.** It runs the checks, matches files to reviewers, and
+  works out what each reviewer has already seen. Act on its output; don't read diffs
+  or re-run checks yourself.
+- **Keep agent replies short.** Agents answer with one line; the detail is in their
+  files. Don't ask them for summaries.
+- **Cost is recorded for you.** A hook writes `factory/jobs/<id>/usage/` as each
+  agent finishes. When a job leaves the active stages (merged, pr-open, needs-human,
+  failed), run `node <abs>/.claude/skills/factory/usage.mjs refresh <id>` once, so
+  the last agent's final messages are counted.
 - Update `board.json` at every stage change and every verdict, setting `updatedAt`.
   Write the whole file each time.
 - One active job at a time. A job is active while its stage is `spec`, `build`,
@@ -89,7 +103,7 @@ Use the Agent tool (called Task in older Claude Code versions) with
 |---|---|---|
 | spec-writer | `factory-spec-writer` | `config.models["spec-writer"]` |
 | builder | `factory-builder` | `config.models.builder` |
-| reviewer `<name>` | `factory-review-<name>` | `config.reviewers[<name>].model` |
+| reviewer `<name>` | `factory-review-<name>` | the `model` round.mjs chose for it |
 | approver | `factory-approver` | `config.models.approver` |
 
 If a subagent type isn't found (for example, a reviewer added during this session),
@@ -117,8 +131,8 @@ files carry everything it needs.
     "roundLimit": 2,
     "reviewers": ["security", "ux", "ui", "code"],
     "rounds": [
-      { "security": "CHANGES", "ux": "PASS", "ui": "PASS", "code": "PASS" },
-      { "security": "pending", "ux": "PASS", "ui": "pending", "code": "PASS" }
+      { "security": "CHANGES", "ux": "SKIPPED", "ui": "PASS", "code": "PASS" },
+      { "security": "pending", "ux": "SKIPPED", "ui": "SKIPPED", "code": "pending" }
     ],
     "decision": null,
     "builderAgent": "builder-003-rate-limiting",
@@ -134,7 +148,8 @@ files carry everything it needs.
 
 - `stage`: `spec` · `build` · `review` · `approval` · `needs-human` · `merged` ·
   `pr-open` · `failed`.
-- `rounds[N-1]` holds round N's verdicts: `pending`, `PASS` or `CHANGES`.
+- `rounds[N-1]` holds round N's verdicts: `pending`, `PASS`, `CHANGES` or `SKIPPED`
+  (round.mjs didn't select it: nothing it covers changed, or changed since it passed).
 - `decision`: `null`, `APPROVE` or `ESCALATE`.
 - `issue` / `issueUrl`: the GitHub issue the job came from, else `null`.
 - `note`: one line saying why a job needs a human (or failed). Clear it when the job
@@ -153,6 +168,9 @@ Takes a request (text) and optionally an issue (number + URL).
    - Another job is active → tell the user to run `/factory resume`.
    - `config.baseBranch` doesn't exist as a local branch.
    - An enabled reviewer has no `.claude/agents/factory-review-<name>.md`.
+
+   If `config.checks` is empty and project.md lists test, lint or type-check
+   commands, copy them into `checks` (see **Setup**) and tell the user, before going on.
 2. **Create the job.** ID = next number (max of existing job ids on the board and in
    `factory/jobs/`, plus one, zero-padded to 3) + `-` + a kebab-case slug of the
    request, at most 5 words. Title = a short human title. Create
@@ -177,30 +195,45 @@ Whenever a job with an `issue` changes to `needs-human`, comment on the issue (s
 
 ## Review round N
 
-1. Create `factory/jobs/<id>/round-N/`. Set `round` = N, append a `rounds` entry with
-   every reviewer `pending`, stage `review`.
-2. Spawn every reviewer in the job's `reviewers` **in a single message**, so they
-   run in parallel. Each gets: reviewer contract path, job folder, `spec.md`,
-   `build.md`, `project.md`, the worktree, branch, baseBranch, round number, and its
-   output path `round-N/review-<name>.md`. For N > 1, also the previous round folder.
-3. As each reviewer finishes, read its verdict and update the board.
-4. **WAIT FOR ALL.** When every reviewer has finished, check every file exists with
-   a valid verdict line. Re-spawn any that don't, once. Still missing → stage
-   `needs-human`, note `reviewer <name> produced no verdict in round N`.
-5. Then:
+1. Set `round` = N, append a `rounds` entry with every reviewer `pending`, stage
+   `review`.
+2. **Checks and selection.** From the repo root, run
+   `node <abs>/.claude/skills/factory/round.mjs <id> N` with the Bash tool's longest
+   timeout (for a slow test suite, run it in the background and wait). It writes
+   `round-N/round.md` and `round-N/round.json` and prints one line of JSON. If it
+   exits non-zero, stage `needs-human` with its error as the note.
+   - `"ok": false` → the checks failed (or the worktree had uncommitted changes).
+     Resume the builder: "The checks failed on your last commit; the output is in
+     `<abs round.md>`. Fix the cause, commit, and reply when done." Then run round.mjs
+     again. The stage stays `review` meanwhile. After two failed fix attempts, stage
+     `needs-human`, note `checks still failing: <failed>`.
+   - `"ok": true` → `run` lists the reviewers to spawn, each with its model; `skipped`
+     the ones to set `SKIPPED` on the board now. If `run` is empty, go to **Approval**.
+3. Spawn every reviewer in `run` **in a single message**, so they run in parallel,
+   each on the model round.mjs gave it. Each gets: reviewer contract path, job folder,
+   `spec.md`, `build.md`, `project.md`, the worktree, `round-N/round.md`, round
+   number, and its output path `round-N/review-<name>.md`.
+4. As each reviewer finishes, read its verdict and update the board.
+5. **WAIT FOR ALL.** When every reviewer in `run` has finished, check every file
+   exists with a valid verdict line. Re-spawn any that don't, once. Still missing →
+   stage `needs-human`, note `reviewer <name> produced no verdict in round N`.
+6. Then, looking only at the reviewers that ran this round:
    - **Any CHANGES and N < roundLimit** → stage `build`. Resume the builder with
      SendMessage: "Round N reviews are in `<abs round folder>`. Address every
-     CHANGES finding (and `human.md` / `decision.md` if present), commit, and append
-     a `## Round N response` section to build.md." Check new commits exist, then run
-     review round N+1.
+     CHANGES finding (and `human.md` / `decision.md` if present), commit, append a
+     `## Round N response` section to build.md, and reply with one line." Check new
+     commits exist, then run review round N+1.
    - **Any CHANGES and N = roundLimit** → stage `needs-human`, note
      `still CHANGES after N rounds: <reviewers>`.
    - **All PASS** → **Approval**.
 
+Skipped reviewers keep their last verdict: round.mjs re-selects a reviewer in a later
+round if it asked for changes, or if files it covers changed since it passed.
+
 ## Approval
 
 1. Stage `approval`. Spawn `factory-approver` with the job folder, worktree, branch,
-   baseBranch and `project.md`. It writes `decision.md`.
+   baseBranch, the final round's `round.md` and `project.md`. It writes `decision.md`.
 2. Record `decision` on the board.
    - `ESCALATE` → stage `needs-human`, note = the `Reason:` line from decision.md.
    - `APPROVE` → **Ship**.
@@ -221,6 +254,7 @@ when the job has an issue, otherwise empty.
    `needs-human` with note `merge failed: <short reason>`, and stop. (The closing
    keyword makes GitHub close the issue when baseBranch is pushed.)
 4. `git worktree remove .factory-worktrees/<id>` and `git branch -d factory/<id>`.
+   Refresh the job's cost (see Rules) so the record includes it.
 5. Commit the job record, and nothing else the user has staged:
    `git add factory/jobs/<id> && git commit -m "factory: record job <id>" -- factory/jobs/<id>`
 6. Stage `merged`. If the job has an issue, comment and unlabel (see **GitHub issues**).
@@ -238,7 +272,8 @@ when the job has an issue, otherwise empty.
 
 If push or `gh` fails, stage `needs-human` with the error as the note.
 
-Finish by telling the user the outcome in one or two lines, with the job id.
+Finish by telling the user the outcome in one or two lines, with the job id and its
+estimated cost from `factory/usage.json`.
 
 ---
 
@@ -357,16 +392,30 @@ Done by you directly, no agent. Re-runnable.
    ## Interface     (has UI: yes/no — what kind)
    ```
 
-5. If the repo has no user interface, set `enabled: false` for the `ux` and `ui`
-   reviewers in config (say so; the user can re-enable them).
-6. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
+5. Write `config.checks`: the test, lint and type-check commands from step 1, as
+   `{ "test": "<command>", "lint": "<command>", "typecheck": "<command>" }`. Leave out
+   any the repo doesn't have. They run from the worktree root without a terminal, so
+   use non-interactive forms (no watch mode). These are the only checks the factory
+   runs between the builder and the reviewers.
+6. **Tune reviewer selection** in config:
+   - If the repo has no user interface, set `enabled: false` for `ux` and `ui` (say
+     so; the user can re-enable them).
+   - Otherwise set the `paths` of `ux` and `ui` to globs for where this repo's front
+     end lives (components, pages, templates, styles, copy). Keep the defaults if they
+     already fit.
+   - Add this repo's authentication, permission, payment and data-access code to
+     `security.escalatePaths`, so changes there are reviewed on `escalateModel`.
+   - Globs: `**` spans folders, `*` stays within one, `{a,b}` is either, and a glob
+     with no `/` matches a file name anywhere. A reviewer without `paths` reviews
+     every change.
+7. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
    from issues labelled `<githubLabel>` by setting `tasks.source` to `"github"`.
-7. Show the user a short summary and suggest committing `.claude/` and `factory/`.
+8. Show the user a short summary and suggest committing `.claude/` and `factory/`.
 
 ## Status
 
 Print one line per job: id, stage, round/roundLimit, latest round's verdicts, issue
-number if any, note. Active job first, then needs-human, then the rest by
+number if any, estimated cost from `factory/usage.json` if it has the job, note. Active job first, then needs-human, then the rest by
 `updatedAt`. Then one line on what's queued: the number of unchecked backlog items
 or open labelled issues. If the board is empty, say so and suggest
 `/factory <feature>`, `/factory backlog <feature>` or `/factory next`. Mention
@@ -383,8 +432,9 @@ run **Status**. Otherwise pick up from where the files say it got to:
   `build.md` exists with commits ahead → review round 1. If round ≥ 1 and build.md has
   a `## Round <round> response` section → review round `round + 1`. Otherwise
   (re)spawn the builder for the current step.
-- `review`: spawn only the reviewers whose round-N file is missing or invalid, then
-  continue from step 4 of Review round.
+- `review`: if `round-N/round.json` is missing or its checks didn't pass, start from
+  step 2 of Review round. Otherwise spawn only the reviewers it selected whose round-N
+  file is missing or invalid, then continue from step 4.
 - `approval`: `decision.md` exists → act on it. Otherwise spawn the approver.
 
 ## Approve
@@ -405,7 +455,7 @@ active.
 3. Set `roundLimit` = N + `config.maxRounds`, `decision` = null, clear `note`, stage
    `build`.
 4. Recreate the worktree if it's gone. Resume or respawn the builder pointing at
-   `round-N/` (as in step 5 of Review round), then run review round N+1.
+   `round-N/` (as in step 6 of Review round), then run review round N+1.
 
 ## Add reviewer
 
@@ -416,7 +466,10 @@ active.
    `.claude/agents/factory-review-<name>.md`. Replace `{{name}}` with the name, and
    `{{focus}}` with a focused checklist you write from the user's focus text (5–10
    concrete things to check, in the same style as the built-in reviewers).
-3. Add `"<name>": { "model": "sonnet", "enabled": true }` to `config.reviewers`.
+3. Add `"<name>": { "model": "sonnet", "enabled": true }` to `config.reviewers`. If
+   the focus only applies to part of the repo (a migrations reviewer, say), add
+   `"paths"` globs so it runs only when those files change; otherwise leave `paths`
+   out so it reviews every change.
 4. Tell the user it applies from the next job, and that Claude Code may need a
    restart to pick up the new agent (the factory falls back to a general-purpose
    agent until then).

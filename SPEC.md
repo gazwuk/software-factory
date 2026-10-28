@@ -42,7 +42,9 @@ Node >= 18.
 - Requires a git repo with at least one commit; refuses otherwise.
 - Refuses if `.claude/skills/factory/` already exists (points to `update`).
 - Copies `template/` into the repo, never overwriting an existing file.
-- Appends to `.gitignore`: `factory/board.json`, `.factory-worktrees/`.
+- Appends to `.gitignore`: `factory/board.json`, `factory/usage.json`, `.factory-worktrees/`.
+- Adds an async `SubagentStop` hook (matcher `^factory-`) running `usage.mjs` to
+  `.claude/settings.json`, creating the file if needed. `update` adds it if missing.
 - Writes `factory/.manifest.json` (package version + hash of every package-owned file).
 - Prints next step: open Claude Code and run `/factory setup`.
 
@@ -65,6 +67,8 @@ Node >= 18.
     SKILL.md                         # orchestrator instructions          [package]
     reviewer-contract.md             # rules every reviewer follows       [package]
     templates/reviewer.md            # scaffold for custom reviewers      [package]
+    round.mjs                        # checks gate + reviewer selection   [package]
+    usage.mjs                        # cost tracking (SubagentStop hook)  [package]
   agents/
     factory-spec-writer.md                                               [package]
     factory-builder.md                                                   [package]
@@ -79,15 +83,19 @@ factory/
   project.md                         # repo profile, from /factory setup [user]
   backlog.md                         # feature queue                     [user]
   board.json                         # durable state, drives dashboard   [user, gitignored]
+  usage.json                         # cost summary, rebuilt by usage.mjs [user, gitignored]
   dashboard.html                                                         [package]
   .manifest.json                                                         [package]
   jobs/<job-id>/                     # one folder per job                [user]
     request.md                       # the task as given (typed, backlog item or issue)
     spec.md
     build.md
+    round-1/round.md                 # checks, selected reviewers and why, diff commands
+    round-1/round.json               # state for the next round's selection
     round-1/review-<reviewer>.md
     round-2/...                      # may also hold human.md and an earlier decision.md after a rework
     decision.md
+    usage/<agent-id>.json            # tokens, cost, active time per agent run
 .factory-worktrees/<job-id>/         # builder's git worktree            [gitignored]
 ```
 
@@ -104,15 +112,17 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
     "source": "backlog",
     "githubLabel": "factory"
   },
+  "checks": { "test": "npm test", "lint": "npm run lint" },
   "models": {
     "spec-writer": "opus",
     "builder": "opus",
     "approver": "opus"
   },
   "reviewers": {
-    "security": { "model": "opus",   "enabled": true },
-    "ux":       { "model": "sonnet", "enabled": true },
-    "ui":       { "model": "sonnet", "enabled": true },
+    "security": { "model": "sonnet", "enabled": true,
+                  "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json"] },
+    "ux":       { "model": "sonnet", "enabled": true, "paths": ["**/components/**", "**/pages/**"] },
+    "ui":       { "model": "sonnet", "enabled": true, "paths": ["*.{css,scss,tsx}"] },
     "code":     { "model": "sonnet", "enabled": true }
   }
 }
@@ -123,6 +133,12 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
 - Models live here, not in agent frontmatter, so tuning survives `update`. The
   orchestrator passes the model when spawning each agent.
 - Each key in `reviewers` maps to `.claude/agents/factory-review-<key>.md`.
+- `checks`: name → shell command, run in the worktree by `round.mjs` before every
+  review round. Written by `/factory setup`.
+- `reviewers.<key>.paths` (optional globs): the reviewer runs only when the change
+  touches matching files. Absent = every change.
+- `reviewers.<key>.escalatePaths` + `escalateModel` (optional): use `escalateModel`
+  when the whole change touches matching files.
 - `tasks.source`: where `/factory next` and `/factory backlog` read and write tasks —
   `"backlog"` (factory/backlog.md) or `"github"` (issues labelled `tasks.githubLabel`).
 
@@ -132,8 +148,10 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
 feature
   → spec-writer                     writes jobs/<id>/spec.md
   → builder (worktree, branch)      writes code + jobs/<id>/build.md, commits
-  → all enabled reviewers in parallel, each writes round-N/review-<name>.md
-  → WAIT FOR ALL
+  → round.mjs                       runs checks once; fail → builder fixes (≤2 tries) → needs-human
+                                    picks reviewers + models → round-N/round.md, round.json
+  → selected reviewers in parallel, each writes round-N/review-<name>.md
+  → WAIT FOR ALL (selected)
       any CHANGES and round < maxRounds → resume builder with round folder, loop
       any CHANGES and round = maxRounds → needs-human
       all PASS → approver
@@ -146,7 +164,7 @@ feature
 
 | Command | Does |
 |---|---|
-| `/factory setup` | Inspect the repo; write `project.md` (language, test/lint/typecheck commands, conventions, has-UI?); disable ux/ui reviewers if there's no UI. Re-runnable. |
+| `/factory setup` | Inspect the repo; write `project.md` (language, test/lint/typecheck commands, conventions, has-UI?); write `checks`; disable ux/ui if there's no UI, else tune their `paths` and security's `escalatePaths`. Re-runnable. |
 | `/factory <feature>` | Start a new job now. |
 | `/factory backlog <feature>` | Shape the text into a well-formed task (asks up to 3 questions, proposes a split if too big) and queue it. Doesn't start a job. |
 | `/factory backlog` | List the queue. |
@@ -206,8 +224,24 @@ own output file. Every agent reads `factory/project.md`.
 |---|---|---|
 | spec-writer | request.md, repo | `spec.md`: goal, scope, out of scope, numbered acceptance criteria |
 | builder | spec.md, latest round folder (if any), rework note | code + tests in the worktree, commits on `factory/<job-id>`; `build.md`: what changed, how each acceptance criterion is met, test output |
-| reviewer-* | spec.md, build.md, `git diff <base>...factory/<job-id>`, worktree | `round-N/review-<name>.md`, first line `VERDICT: PASS` or `VERDICT: CHANGES`, then findings |
-| approver | everything in the job folder, diff | `decision.md`, first line `APPROVE` or `ESCALATE`, then reasoning |
+| reviewer-* | spec.md, build.md, round.md (checks + its diff range), worktree | `round-N/review-<name>.md`, first line `VERDICT: PASS` or `VERDICT: CHANGES`, then findings |
+| approver | everything in the job folder, diff, final round.md (re-runs checks only if the branch moved) | `decision.md`, first line `APPROVE` or `ESCALATE`, then reasoning |
+
+Every agent replies to the orchestrator with one line; the detail is in its file.
+
+**Round preparation (`round.mjs`):** deterministic, no model. Per round it:
+
+1. Refuses a dirty worktree, then runs `config.checks` in it on the branch head.
+   Failures go back to the builder (the stage stays `review`, no round is used up);
+   after two failed fixes the job goes to needs-human.
+2. For each of the job's reviewers, finds the commit it last passed at (`since`; the
+   merge base if never), carried through rounds where it was skipped.
+3. Selects it if its last verdict was CHANGES or missing, or if files matching its
+   `paths` (all files when unset) changed between `since` and the head.
+4. Picks `escalateModel` if the whole change touches its `escalatePaths`.
+5. Writes `round.md` (results, selection table with reasons, a `git diff <since> <head>`
+   per selected reviewer, diff stat) and `round.json`, and prints a one-line JSON
+   summary.
 
 **Builder lifecycle:** spawned once per job as `builder-<job-id>`, resumed with
 SendMessage each round, pointed at the round folder. If the session has ended (no
@@ -255,8 +289,8 @@ The orchestrator is its only writer. Shape:
     "roundLimit": 2,
     "reviewers": ["security", "ux", "ui", "code"],
     "rounds": [
-      { "security": "CHANGES", "ux": "PASS", "ui": "PASS", "code": "PASS" },
-      { "security": "pending", "ux": "PASS", "ui": "pending", "code": "PASS" }
+      { "security": "CHANGES", "ux": "SKIPPED", "ui": "PASS", "code": "PASS" },
+      { "security": "pending", "ux": "SKIPPED", "ui": "SKIPPED", "code": "pending" }
     ],
     "decision": null,
     "builderAgent": "builder-003-rate-limiting",
@@ -271,6 +305,8 @@ The orchestrator is its only writer. Shape:
 ```
 
 - Stages: `spec`, `build`, `review`, `approval`, `needs-human`, `merged`, `pr-open`, `failed`.
+- Verdicts in `rounds`: `pending`, `PASS`, `CHANGES`, `SKIPPED` (not selected that round;
+  its previous verdict stands).
 - `reviewers` is snapshotted at job start, so config changes don't affect running jobs.
 - `roundLimit` starts at `maxRounds`; a rework raises it to `round + maxRounds`.
 - `builderAgent` is the name or agent id the orchestrator resumes with SendMessage.
@@ -284,14 +320,39 @@ One self-contained HTML file, no build step, no external requests.
 
 - Polls `board.json` every 2s.
 - Columns follow the loop stages; jobs are cards that move across them.
-- Each review round is a row of reviewer chips (pending / PASS / CHANGES) filling in
+- Each review round is a row of reviewer chips (pending / PASS / CHANGES / SKIPPED) filling in
   as verdicts land. Chips come from the job's `reviewers`, so custom reviewers just work.
 - needs-human cards stand out.
+- Polls `usage.json` too: cards and the header show estimated cost; each job's drawer
+  has a Cost tab (per agent, round, model, tokens, time). A **Stats** view shows each
+  reviewer's reviews, changes asked (and rate), skips, cost and cost per review, plus
+  cost by role, model and job.
 - Clicking a card opens a panel that renders the job's markdown files (spec, build,
   each round's reviews, decision). `dashboard.html#job=<id>` links straight to it.
 - It discovers files by trying the paths the board implies, so it also works with
   any static server (`python3 -m http.server` included).
 - Clean and minimal; light and dark; single column on phones.
+
+## Cost tracking
+
+`usage.mjs` runs as an async SubagentStop hook. For a `factory-*` agent it waits for
+the transcript to flush, reads `agent_transcript_path`, and sums `message.usage` per
+model (deduplicated by message id). Job id comes from the agent's first prompt (the
+`factory/jobs/<id>/` path it was given), round from its `round-N/review-` output path.
+
+- Writes `factory/jobs/<id>/usage/<agent-id>.json`: agent, round, transcript (`~`-relative),
+  per-model tokens (input, output, cache read, 5m/1h cache writes) and cost, total
+  tokens, cost, active seconds (excluding time waiting for the next instruction).
+  One file per agent, so parallel reviewers never write the same file. A resumed
+  builder keeps one file, updated with its running total.
+- Re-reads every transcript of that job, then rebuilds `factory/usage.json` (all jobs)
+  with an atomic rename.
+- `usage.mjs refresh [id]` does the same on demand; the orchestrator runs it when a
+  job leaves the active stages, so late-written final messages are counted.
+- Prices: a built-in table (USD per MTok, longest model-id prefix wins), overridable
+  with `config.pricing`. Cache writes are 1.25x input (5m) or 2x (1h). Unknown models
+  count tokens but no cost.
+- Never fails loudly in hook mode.
 
 ## Package layout
 

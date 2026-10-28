@@ -33,7 +33,8 @@ The orchestrator gives you absolute paths for:
 3. Write tests that cover every acceptance criterion.
 4. Run the project's test, lint and type-check commands from project.md. Fix what
    fails.
-5. Commit.
+5. Commit everything. Leave no uncommitted changes: the orchestrator re-runs the
+   checks on your last commit and won't start a review on a dirty worktree.
 6. Write `<job folder>/build.md`:
 
 ```markdown
@@ -56,6 +57,13 @@ The commands you ran and their results (last few lines of output).
 Risks, trade-offs, anything a reviewer should look at closely.
 ```
 
+## Failing checks
+
+The orchestrator runs the project's checks on your commit before any reviewer sees
+it. If they fail, it sends you the round's `round.md`, which has the output. Fix the
+cause (not the test, unless the test is wrong), re-run the check, and commit. Don't
+add a round response to build.md for this.
+
 ## Later rounds
 
 When the orchestrator says a round's reviews are in:
@@ -74,3 +82,8 @@ When the orchestrator says a round's reviews are in:
 - **code #2 <title>** — not changed: <reason>
 - **human** — …
 ```
+
+## When you finish
+
+Reply with one line only, such as `build.md written — 3 commits, checks pass`.
+Everything else belongs in build.md.

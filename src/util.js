@@ -10,7 +10,9 @@ export const INSTALL_CMD = 'npx github:gazwuk/software-factory';
 
 export const MANIFEST_PATH = 'factory/.manifest.json';
 export const CONFIG_PATH = 'factory/config.json';
-export const GITIGNORE_ENTRIES = ['factory/board.json', '.factory-worktrees/'];
+export const GITIGNORE_ENTRIES = ['factory/board.json', 'factory/usage.json', '.factory-worktrees/'];
+export const SETTINGS_PATH = '.claude/settings.json';
+export const USAGE_HOOK_COMMAND = 'node "$CLAUDE_PROJECT_DIR/.claude/skills/factory/usage.mjs"';
 
 // Template files the user owns once installed: created if missing, never overwritten.
 export const USER_FILES = new Set([

@@ -2,8 +2,9 @@
 
 A small, visual software factory for [Claude Code](https://claude.com/claude-code).
 One command adds a `/factory` skill, a team of subagents and a live dashboard to any
-git repo. You give it a feature; it writes a spec, builds it on a branch, puts it
-through four reviewers in parallel, and either merges it or asks you.
+git repo. You give it a feature; it writes a spec, builds it on a branch, runs your
+checks, puts it through the reviewers that matter for that change in parallel, and
+either merges it or asks you.
 
 ```
                    feature
@@ -11,8 +12,11 @@ through four reviewers in parallel, and either merges it or asks you.
                  spec-writer
                       ▼
                    builder ◄──────────────┐
-                      ▼                   │ any CHANGES
-   security · ux · ui · code  (parallel)  │ (max 2 rounds)
+                      ▼                   │
+        checks · pick reviewers ──────────┤ checks fail
+                      ▼                   │
+   security · ux · ui · code  (parallel,  │ any CHANGES
+     only those the change touches)       │ (max 2 rounds)
                       ▼                   │
                  WAIT FOR ALL ────────────┘
                       ▼ all PASS
@@ -73,7 +77,8 @@ npx github:gazwuk/software-factory dashboard
 
 Jobs move across the board as cards. Each review round shows as a row of reviewer
 chips that fill in as verdicts land. Click a card to read its spec, build notes,
-reviews and decision.
+reviews, decision and cost. **Stats** shows how often each reviewer asks for changes
+against what it costs, and where the money goes by role, model and job.
 
 One job runs at a time. Jobs waiting for you don't block new ones.
 
@@ -138,14 +143,18 @@ out.
 .claude/
   skills/factory/SKILL.md        the orchestrator: runs the loop, only writer of board.json
   skills/factory/reviewer-contract.md
+  skills/factory/round.mjs       runs the checks and picks the reviewers each round
+  skills/factory/usage.mjs       records each agent's tokens and cost
+  settings.json                  gains a SubagentStop hook that runs usage.mjs
   agents/factory-*.md            spec-writer, builder, approver, and one per reviewer
 factory/
   config.json                    your settings
   project.md                     repo profile (from /factory setup)
   backlog.md                     feature queue
   board.json                     live state (gitignored)
+  usage.json                     cost summary for the dashboard (gitignored)
   dashboard.html
-  jobs/<id>/                     request.md, spec.md, build.md, round-N/review-*.md, decision.md
+  jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,review-*.md}, decision.md, usage/
 ```
 
 The builder works in a git worktree (`.factory-worktrees/<id>`, gitignored) on branch
@@ -162,11 +171,13 @@ folder is committed as a record of what happened.
   "maxRounds": 2,
   "onApprove": "merge",
   "tasks": { "source": "backlog", "githubLabel": "factory" },
+  "checks": { "test": "npm test", "lint": "npm run lint" },
   "models": { "spec-writer": "opus", "builder": "opus", "approver": "opus" },
   "reviewers": {
-    "security": { "model": "opus", "enabled": true },
-    "ux": { "model": "sonnet", "enabled": true },
-    "ui": { "model": "sonnet", "enabled": true },
+    "security": { "model": "sonnet", "enabled": true,
+                  "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json", "…"] },
+    "ux": { "model": "sonnet", "enabled": true, "paths": ["**/components/**", "**/pages/**", "…"] },
+    "ui": { "model": "sonnet", "enabled": true, "paths": ["*.{css,scss,tsx}", "…"] },
     "code": { "model": "sonnet", "enabled": true }
   }
 }
@@ -177,7 +188,50 @@ folder is committed as a record of what happened.
   and opens a pull request with `gh`.
 - `tasks.source`: `"backlog"` (factory/backlog.md) or `"github"` (open issues
   labelled `tasks.githubLabel`). See [Giving it work](#giving-it-work).
+- `checks`: commands run in the worktree after every build, before any reviewer.
+  `/factory setup` fills them in. See [Checks and reviewer selection](#checks-and-reviewer-selection).
+- `reviewers.<name>.paths`: run this reviewer only when the change touches files
+  matching these globs. Leave it out to review every change.
+- `reviewers.<name>.escalatePaths` / `escalateModel`: use `escalateModel` instead of
+  `model` when the change touches these files.
 - Turn a reviewer off with `"enabled": false` rather than deleting it.
+
+### Checks and reviewer selection
+
+Each review round starts with `round.mjs`, a small script rather than an agent:
+
+1. **Checks.** It runs every command in `checks` once, on the builder's last commit.
+   If one fails, or the builder left uncommitted changes, the builder gets the output
+   and tries again (twice at most) before any reviewer is spawned. Reviewers and the
+   approver read the results instead of running the suite themselves.
+2. **Who reviews.** A reviewer runs if the change touches its `paths`. In later rounds
+   it runs again only if it asked for changes, or if files it covers changed since it
+   passed; otherwise it shows as `SKIPPED` and its pass stands. Reviewers that run
+   again are pointed at the diff since their last review.
+3. **Which model.** If the change touches a reviewer's `escalatePaths`, it runs on
+   `escalateModel`. So security is on Sonnet for most changes and Opus for
+   authentication, dependencies, migrations and CI.
+
+Everything it decided, and why, is in `round-N/round.md` (the **checks** tab on the
+dashboard). Globs: `**` spans folders, `*` stays within one, `{a,b}` is either, and a
+glob without `/` matches a file name anywhere (`package.json`, `*.css`). The default
+`ux` and `ui` paths are generic front-end locations, and `/factory setup` adjusts them
+to your repo.
+
+### Cost tracking
+
+`init` adds a `SubagentStop` hook to `.claude/settings.json`. When a factory agent
+finishes, the hook reads that agent's transcript and writes its tokens, estimated cost
+and working time to `factory/jobs/<id>/usage/`. The record is committed with the job.
+
+Costs are estimated at Anthropic API list prices, built into `usage.mjs` (and kept
+current by `update`). On a Claude subscription you aren't billed per token, but the
+numbers still show which agents, models and reviewers are worth what they use. To
+override or add a price, put this in config (USD per million tokens):
+
+```json
+"pricing": { "claude-opus-5-5": { "input": 4, "output": 20, "cacheRead": 0.2 } }
+```
 
 ### Your own reviewers
 
@@ -185,7 +239,8 @@ folder is committed as a record of what happened.
 /factory add-reviewer perf "N+1 queries, unbounded loops, missing indexes, payload size"
 ```
 
-That creates `.claude/agents/factory-review-perf.md` and adds it to config. Any
+That creates `.claude/agents/factory-review-perf.md` and adds it to config (with
+`paths` if the focus only covers part of the repo). Any
 `factory-review-<name>.md` that follows `.claude/skills/factory/reviewer-contract.md`
 works, so you can also write one by hand.
 
@@ -196,7 +251,9 @@ npx github:gazwuk/software-factory update
 ```
 
 Replaces the factory's own files (skill, agents, dashboard) with the latest version
-and adds any new settings to `config.json`. Your config values, backlog, jobs and
+and adds any new settings to `config.json`. After an update that adds settings (such
+as `checks` or reviewer `paths`), run `/factory setup` again to fill them in for your
+repo. Your config values, backlog, jobs and
 custom reviewers are never touched. If you've edited one of the factory's files, your
 version is kept and the new one is saved beside it as `.new` for you to merge
 (`--force` overwrites instead).

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureGitignore, mergeDefaults, readManifest, writeFile, writeManifest } from './install.js';
+import { ensureGitignore, ensureUsageHook, mergeDefaults, readManifest, writeFile, writeManifest } from './install.js';
 import {
   CONFIG_PATH, CliError, INSTALL_CMD, TEMPLATE_DIR, USER_FILES,
   packageVersion, repoRoot, sha256, templateFiles,
@@ -63,6 +63,9 @@ export function update(cwd, { force = false } = {}, log = console.log) {
   const dropped = Object.keys(manifest.files || {}).filter((rel) => !shipped.includes(rel));
   const ignored = ensureGitignore(root);
   if (ignored.length) changes.push(['+', `.gitignore: ${ignored.join(', ')}`]);
+  const hook = ensureUsageHook(root);
+  if (hook === 'added') changes.push(['+', '.claude/settings.json: SubagentStop hook that records what each agent costs']);
+  else if (hook !== 'present') changes.push(['!', hook]);
   writeManifest(root, next);
 
   const from = manifest.version ? `v${manifest.version}` : 'an unknown version';

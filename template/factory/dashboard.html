@@ -79,6 +79,12 @@
     content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--pass);
   }
   .live.down::before { background: var(--danger); }
+  .stats-btn {
+    border: 1px solid var(--border); background: transparent; border-radius: 8px;
+    padding: 4px 10px; font-size: 13px; cursor: pointer; color: var(--muted);
+  }
+  .stats-btn:hover { color: var(--text); border-color: var(--faint); }
+  .stats-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   .banner {
     margin: 16px 24px 0; padding: 12px 14px; border-radius: 8px;
@@ -136,6 +142,8 @@
   .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .chip.pass { background: var(--pass-bg); color: var(--pass); }
   .chip.changes { background: var(--changes-bg); color: var(--changes); }
+  .chip.skipped { background: none; box-shadow: inset 0 0 0 1px var(--border); color: var(--faint); }
+  .chip.skipped::before { background: none; box-shadow: inset 0 0 0 1px currentColor; }
   .chip.waiting::before { animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .25; } }
 
@@ -231,6 +239,8 @@
   <div class="brand">Software Factory</div>
   <div class="stat" id="stat-active"></div>
   <div class="stat human" id="stat-human"></div>
+  <div class="stat" id="stat-cost"></div>
+  <button class="stats-btn" id="stats-btn" type="button">Stats</button>
   <div class="live" id="live">Connecting…</div>
 </header>
 <div class="banner" id="banner" hidden></div>
@@ -272,7 +282,10 @@
   const $ = (id) => document.getElementById(id);
   let boardText = null;
   let board = { jobs: [] };
-  let openJob = null;      // { id, updatedAt, docs, selected, opener }
+  let usageText = null;
+  let usage = { jobs: {} }; // usage.json, written by the cost-tracking hook
+  let openJob = null;      // { id, updatedAt, docs, selected, opener } or { stats: true, … }
+  const COST_NOTE = 'Estimated at API list prices from each agent\'s transcript. On a Claude subscription you aren\'t billed per token, but the numbers still compare agents, models and reviewers.';
 
   // ---------- helpers ----------
 
@@ -301,8 +314,25 @@
     return `${Math.round(s / 86400)}d ago`;
   }
 
+  function usd(n) {
+    if (n == null) return '—';
+    return n > 0 && n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`;
+  }
+
+  function tokens(n) {
+    if (!n) return '0';
+    return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
+  }
+
+  function duration(s) {
+    if (!s) return '—';
+    return s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`;
+  }
+
+  const jobUsage = (id) => (usage.jobs || {})[id] || null;
+
   function verdictClass(v) {
-    return v === 'PASS' ? 'pass' : v === 'CHANGES' ? 'changes' : '';
+    return v === 'PASS' ? 'pass' : v === 'CHANGES' ? 'changes' : v === 'SKIPPED' ? 'skipped' : '';
   }
 
   function safeHttpUrl(u) {
@@ -456,7 +486,7 @@
       rounds.length ? h('div', { class: 'rounds' }, roundRows) : null,
       h('div', { class: 'card-meta' },
         h('span', null, job.stage === 'pr-open' ? 'PR open' : job.stage === 'failed' ? 'Failed' : roundText),
-        h('span', null, ago(job.updatedAt))),
+        h('span', null, [jobUsage(job.id) ? usd(jobUsage(job.id).costUsd) : null, ago(job.updatedAt)].filter(Boolean).join(' · '))),
       job.note && (cls === 'human' || cls === 'failed') ? h('div', { class: 'note' }, job.note) : null,
     );
   }
@@ -470,6 +500,8 @@
     const human = jobs.filter((j) => j.stage === 'needs-human' || j.stage === 'failed').length;
     $('stat-active').innerHTML = `<b>${active}</b> active`;
     $('stat-human').innerHTML = human ? `<b>${human}</b> need${human === 1 ? 's' : ''} you` : '';
+    const spent = Object.values(usage.jobs || {}).reduce((n, u) => n + (u.costUsd || 0), 0);
+    $('stat-cost').innerHTML = spent ? `<b>${esc(usd(spent))}</b> est. cost` : '';
 
     const main = $('board');
     main.replaceChildren();
@@ -504,7 +536,23 @@
     if (!ok) banner.innerHTML = message;
   }
 
+  async function pollUsage() {
+    try {
+      const res = await fetch('usage.json', { cache: 'no-store' });
+      if (!res.ok) return false;
+      const text = await res.text();
+      if (text === usageText) return false;
+      usage = JSON.parse(text);
+      usageText = text;
+      return true;
+    } catch { return false; } // missing, or mid-write: try again next tick
+  }
+
   async function poll() {
+    if (await pollUsage()) {
+      render();
+      if (openJob) refreshCost();
+    }
     try {
       const res = await fetch('board.json', { cache: 'no-store' });
       if (!res.ok) throw new Error(`board.json returned ${res.status}`);
@@ -546,6 +594,7 @@
       const group = `Round ${r}`;
       const dir = `${base}round-${r}/`;
       if (r > 0) {
+        docs.push({ group, label: 'checks', path: `${dir}round.md` });
         for (const name of reviewers) {
           const verdict = job.rounds && job.rounds[r - 1] ? job.rounds[r - 1][name] : null;
           docs.push({ group, label: name, path: `${dir}review-${encodeURIComponent(name)}.md`, verdict });
@@ -558,6 +607,116 @@
     return docs;
   }
 
+  // ---------- cost ----------
+
+  const table = (head, rows) => [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`,
+    ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
+
+  function costDoc(job) {
+    const u = jobUsage(job.id);
+    if (!u) return null;
+    const agents = [...u.agents].sort((a, b) => (a.round || 0) - (b.round || 0) || a.agent.localeCompare(b.agent));
+    const text = [
+      '# Cost', '',
+      `**${usd(u.costUsd)}**${u.unpriced ? ' (some models unpriced)' : ''} · ${tokens(u.tokens)} tokens · ${duration(u.activeSeconds)} of agent time`, '',
+      table(['Agent', 'Round', 'Model', 'Tokens', 'Time', 'Cost'], agents.map((a) => [
+        a.agent, a.round || '—', (a.models || []).map((m) => m.replace(/^claude-/, '')).join(', ') || '—',
+        tokens(a.tokens), duration(a.activeSeconds), usd(a.costUsd)])),
+      '', COST_NOTE,
+    ].join('\n');
+    return { group: 'Job', label: 'Cost', path: '#cost', text };
+  }
+
+  function withCost(job, docs) {
+    const rest = docs.filter((d) => d.path !== '#cost');
+    const cost = costDoc(job);
+    if (!cost) return rest;
+    const at = rest.findIndex((d) => d.group !== 'Job');
+    rest.splice(at === -1 ? rest.length : at, 0, cost);
+    return rest;
+  }
+
+  function statsDocs() {
+    const jobs = Array.isArray(board.jobs) ? board.jobs : [];
+    const runs = Object.values(usage.jobs || {}).flatMap((u) => u.agents || []);
+    const costFor = (pred) => runs.filter(pred).reduce((n, a) => n + (a.costUsd || 0), 0);
+    const total = costFor(() => true);
+
+    const names = [...new Set(jobs.flatMap((j) => (Array.isArray(j.reviewers) ? j.reviewers : [])))].sort();
+    const reviewerRows = names.map((name) => {
+      const verdicts = jobs.flatMap((j) => (Array.isArray(j.rounds) ? j.rounds : []).map((r) => r && r[name]));
+      const reviewed = verdicts.filter((v) => v === 'PASS' || v === 'CHANGES').length;
+      const changes = verdicts.filter((v) => v === 'CHANGES').length;
+      const mine = runs.filter((a) => a.agent === `review-${name}`);
+      const cost = costFor((a) => a.agent === `review-${name}`);
+      return [name, reviewed, reviewed ? `${changes} (${Math.round((100 * changes) / reviewed)}%)` : '0',
+        verdicts.filter((v) => v === 'SKIPPED').length, usd(cost), mine.length ? usd(cost / mine.length) : '—'];
+    });
+
+    const roles = [['spec-writer', (a) => a.agent === 'spec-writer'], ['builder', (a) => a.agent === 'builder'],
+      ['reviewers', (a) => a.agent.startsWith('review-')], ['approver', (a) => a.agent === 'approver']];
+    const roleRows = roles.map(([label, pred]) => {
+      const cost = costFor(pred);
+      return [label, runs.filter(pred).length, usd(cost), total ? `${Math.round((100 * cost) / total)}%` : '—'];
+    });
+
+    const byModel = {};
+    for (const a of runs) for (const m of a.models || []) byModel[m] = (byModel[m] || 0) + (a.costUsd || 0) / a.models.length;
+    const modelRows = Object.entries(byModel).sort((a, b) => b[1] - a[1])
+      .map(([m, cost]) => [m, usd(cost), total ? `${Math.round((100 * cost) / total)}%` : '—']);
+
+    const jobRows = jobs.filter((j) => jobUsage(j.id))
+      .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
+      .map((j) => [j.id, STAGE_LABEL[j.stage] || j.stage, j.round || '—', tokens(jobUsage(j.id).tokens), usd(jobUsage(j.id).costUsd)]);
+
+    if (!runs.length && !names.length) {
+      return [{ group: 'Stats', label: 'Overview', path: '#stats', text: '# Stats\n\nNothing recorded yet. Cost appears as factory agents finish.' }];
+    }
+    return [
+      { group: 'Stats', label: 'Reviewers', path: '#stats-reviewers', text: ['# Reviewers', '',
+        'How often each reviewer asks for changes, against what it costs. A reviewer that rarely asks for changes may not earn its keep: narrow its `paths` or turn it off.', '',
+        table(['Reviewer', 'Reviews', 'Asked for changes', 'Skipped', 'Cost', 'Per review'], reviewerRows), '', COST_NOTE].join('\n') },
+      { group: 'Stats', label: 'Cost', path: '#stats-cost', text: ['# Cost', '',
+        `**${usd(total)}** across ${Object.keys(usage.jobs || {}).length} jobs.`, '',
+        '## By role', '', table(['Role', 'Runs', 'Cost', 'Share'], roleRows), '',
+        '## By model', '', table(['Model', 'Cost', 'Share'], modelRows), '',
+        '## By job', '', table(['Job', 'Stage', 'Rounds', 'Tokens', 'Cost'], jobRows), '', COST_NOTE].join('\n') },
+    ];
+  }
+
+  function refreshCost() {
+    if (openJob.stats) return refreshStats();
+    const job = jobById(openJob.id);
+    if (!job) return;
+    openJob.docs = withCost(job, openJob.docs);
+    renderTabs();
+    if (openJob.selected === '#cost') {
+      const scroll = $('doc').scrollTop;
+      renderDoc();
+      $('doc').scrollTop = scroll;
+    }
+  }
+
+  function refreshStats() {
+    openJob.docs = statsDocs();
+    if (!openJob.docs.some((d) => d.path === openJob.selected)) openJob.selected = openJob.docs[0].path;
+    renderTabs();
+    const scroll = $('doc').scrollTop;
+    renderDoc();
+    $('doc').scrollTop = scroll;
+  }
+
+  function openStats(opener) {
+    openJob = { stats: true, id: null, docs: [], selected: null, opener };
+    $('drawer-id').textContent = '';
+    $('drawer-title').textContent = 'Stats';
+    $('drawer-sub').replaceChildren(h('span', null, 'Across every job on the board'));
+    $('scrim').hidden = false;
+    $('drawer').hidden = false;
+    $('drawer-close').focus();
+    refreshStats();
+  }
+
   async function loadDocs(job) {
     const found = await Promise.all(docCandidates(job).map(async (d) => {
       try {
@@ -568,7 +727,7 @@
         return { ...d, text: await res.text() };
       } catch { return null; }
     }));
-    return found.filter(Boolean);
+    return withCost(job, found.filter(Boolean));
   }
 
   function renderDrawerHead(job) {
@@ -621,11 +780,13 @@
       badge = `<div class="verdict ${first[1]}">${first[1]}</div>`;
       text = text.slice(first[0].length);
     }
-    doc.innerHTML = `<div class="doc-path mono">${esc(decodeURIComponent(d.path))}</div>${badge}<div class="md">${md(text)}</div>`;
+    const path = d.path.startsWith('#') ? '' : `<div class="doc-path mono">${esc(decodeURIComponent(d.path))}</div>`;
+    doc.innerHTML = `${path}${badge}<div class="md">${md(text)}</div>`;
     doc.scrollTop = 0;
   }
 
   async function refreshDrawer(force) {
+    if (openJob.stats) return refreshStats();
     const job = jobById(openJob.id);
     if (!job) { closeDrawer(); return; }
     renderDrawerHead(job);
@@ -673,11 +834,12 @@
     $('scrim').hidden = true;
     $('drawer').hidden = true;
     history.replaceState(null, '', location.pathname + location.search);
-    const target = document.querySelector(`[data-id="${CSS.escape(id)}"]`) || opener;
+    const target = (id && document.querySelector(`[data-id="${CSS.escape(id)}"]`)) || opener;
     if (target && target.focus) target.focus();
   }
 
   $('drawer-close').addEventListener('click', closeDrawer);
+  $('stats-btn').addEventListener('click', (e) => openStats(e.currentTarget));
   $('scrim').addEventListener('click', closeDrawer);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
   window.addEventListener('hashchange', openFromHash);
