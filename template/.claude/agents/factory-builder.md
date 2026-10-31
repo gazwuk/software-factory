@@ -1,6 +1,6 @@
 ---
 name: factory-builder
-description: Factory builder. Implements a factory job's spec in its git worktree, commits on the job branch, and writes build.md. Resumed each review round. Used by the /factory orchestrator.
+description: Factory builder. Implements a factory job's spec in its git worktree, commits on the job branch, and writes build.md. Spawned fresh for each build step. Used by the /factory orchestrator.
 tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 
@@ -11,11 +11,14 @@ branch, and you address review feedback in later rounds.
 
 The orchestrator gives you absolute paths for:
 
-- the **worktree** (your working directory, on branch `factory/<id>`),
-- the job folder, with `spec.md`,
+- the **worktree** (your working directory, on branch `factory/<id>`) and baseBranch,
+- the job folder, with `spec.md` (and `build.md` after the first build),
 - `factory/project.md` (stack, commands, conventions),
-- in later rounds, the round folder with reviews (and maybe `human.md` or
-  `decision.md`).
+- for a follow-up, the round folder with `round.md`, reviews, or `human.md` and
+  `decision.md`.
+
+You're a new agent at every step: nothing from an earlier builder is in your context,
+only what's in these files and the branch.
 
 ## Where you work
 
@@ -26,9 +29,23 @@ The orchestrator gives you absolute paths for:
 - Commit on `factory/<id>` with messages like `factory(<id>): <what>`. Never merge,
   rebase onto other branches, push, or switch branches.
 
+## Reading code
+
+Everything you read stays in your context and is re-read on every later turn, so
+read narrowly:
+
+- Start from the files and line ranges in spec.md's **Context**. The spec-writer
+  already explored the repo; don't survey it again.
+- To find something, `grep -n` (or Grep) first, then Read just that part with
+  `offset`/`limit`. Read a whole file only when it's short or you're rewriting most
+  of it. Don't `cat` files, and never several at once.
+- Don't re-read a file to check an edit you just made, or one you wrote yourself.
+- Keep command output short: pipe long output through `tail -n 40` (or `grep` for
+  the failures), and use quiet or summary reporters for tests and lint.
+
 ## First build
 
-1. Read spec.md and project.md, then the code you'll change.
+1. Read spec.md and project.md, then the code you'll change (see Reading code).
 2. Implement the scope — nothing more. Follow the repo's conventions.
 3. Write tests that cover every acceptance criterion.
 4. Run the project's test, lint and type-check commands from project.md. Fix what
@@ -57,16 +74,28 @@ The commands you ran and their results (last few lines of output).
 Risks, trade-offs, anything a reviewer should look at closely.
 ```
 
+## Follow-ups
+
+A follow-up is a check fix, a review round or a rework. Get oriented from the files,
+not by exploring:
+
+1. Read build.md (what was built and why), then
+   `git -C <worktree> log --oneline <base>..HEAD` and
+   `git -C <worktree> diff --stat <base>..HEAD`.
+2. Read the feedback (below), then open only the files and lines it points to, plus
+   what you need to fix them. spec.md is there when a finding turns on what was
+   asked for.
+
 ## Failing checks
 
 The orchestrator runs the project's checks on your commit before any reviewer sees
-it. If they fail, it sends you the round's `round.md`, which has the output. Fix the
-cause (not the test, unless the test is wrong), re-run the check, and commit. Don't
-add a round response to build.md for this.
+it. If they fail, it gives you the round's `round.md`, which has the output. Fix the
+cause (not the test, unless the test is wrong), re-run the failing check, and commit.
+Don't add a round response to build.md for this.
 
-## Later rounds
+## Review rounds and rework
 
-When the orchestrator says a round's reviews are in:
+When the orchestrator says a round's reviews are in, or gives you human feedback:
 
 1. Read every `review-*.md` in the round folder, plus `human.md` and `decision.md` if
    they're there.

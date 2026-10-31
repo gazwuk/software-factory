@@ -172,7 +172,7 @@ folder is committed as a record of what happened.
   "onApprove": "merge",
   "tasks": { "source": "backlog", "githubLabel": "factory" },
   "checks": { "test": "npm test", "lint": "npm run lint" },
-  "models": { "spec-writer": "opus", "builder": "opus", "approver": "opus" },
+  "models": { "spec-writer": "opus", "builder": "opus", "builder-fix": "sonnet", "approver": "opus" },
   "reviewers": {
     "security": { "model": "sonnet", "enabled": true,
                   "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json", "…"] },
@@ -184,6 +184,8 @@ folder is committed as a record of what happened.
 ```
 
 - `maxRounds`: review rounds before a job is handed to you.
+- `models.builder-fix`: the builder's model for fixing failed checks and review
+  findings. The first build and `/factory rework` use `models.builder`.
 - `onApprove`: `"merge"` merges into `baseBranch` locally; `"pr"` pushes the branch
   and opens a pull request with `gh`.
 - `tasks.source`: `"backlog"` (factory/backlog.md) or `"github"` (open issues

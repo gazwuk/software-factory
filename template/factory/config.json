@@ -10,6 +10,7 @@
   "models": {
     "spec-writer": "opus",
     "builder": "opus",
+    "builder-fix": "sonnet",
     "approver": "opus"
   },
   "reviewers": {

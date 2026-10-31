@@ -58,7 +58,7 @@ request
       checks fail → builder fixes (up to 2 tries) → round.mjs again; still failing → needs-human
   → selected reviewers, in parallel → jobs/<id>/round-N/review-<name>.md
   → WAIT FOR ALL (selected)
-      any CHANGES, round < roundLimit  → resume builder on round-N, next round
+      any CHANGES, round < roundLimit  → fresh builder on round-N, next round
       any CHANGES, round = roundLimit  → needs-human
       all PASS                         → approver
   → approver                       jobs/<id>/decision.md
@@ -76,7 +76,7 @@ request
   `APPROVE` or `ESCALATE`. Read only the first line to get the verdict; treat any
   other first line as a missing file.
 - **WAIT FOR ALL.** A review round is done only when every reviewer selected for it
-  has a file in the round folder. Never resume the builder mid-round.
+  has a file in the round folder. Never start a builder mid-round.
 - **Don't do round.mjs's job.** It runs the checks, matches files to reviewers, and
   works out what each reviewer has already seen. Act on its output; don't read diffs
   or re-run checks yourself.
@@ -102,7 +102,8 @@ Use the Agent tool (called Task in older Claude Code versions) with
 | Agent | subagent_type | model |
 |---|---|---|
 | spec-writer | `factory-spec-writer` | `config.models["spec-writer"]` |
-| builder | `factory-builder` | `config.models.builder` |
+| builder (first build, rework) | `factory-builder` | `config.models.builder` |
+| builder (check or review fixes) | `factory-builder` | `config.models["builder-fix"]`, else `config.models.builder` |
 | reviewer `<name>` | `factory-review-<name>` | the `model` round.mjs chose for it |
 | approver | `factory-approver` | `config.models.approver` |
 
@@ -110,11 +111,14 @@ If a subagent type isn't found (for example, a reviewer added during this sessio
 spawn a general-purpose agent instead and paste the body of
 `.claude/agents/factory-<agent>.md` at the top of its prompt.
 
-Spawn the builder as `builder-<id>` (use the Agent tool's name field if it has one)
-and store whatever you will address it by — name or agent id — in the job's
-`builderAgent`. Later rounds resume that same builder with SendMessage. If
-SendMessage fails (for example, after a new session), spawn a fresh builder; the
-files carry everything it needs.
+**Spawn a fresh builder for every builder step** — the first build, each check fix,
+each review round and each rework. Never resume an earlier builder with SendMessage:
+its context still holds everything the first build read, so every turn of a
+follow-up re-reads it, and that is most of a job's cost. The files (spec.md,
+build.md, the round folder, the branch's commits) carry everything a new builder
+needs. Every builder prompt gives the worktree, branch, baseBranch, job folder,
+`spec.md`, `project.md` and `build.md` (once it exists), plus the step-specific
+lines below.
 
 ## board.json
 
@@ -135,7 +139,6 @@ files carry everything it needs.
       { "security": "pending", "ux": "SKIPPED", "ui": "SKIPPED", "code": "pending" }
     ],
     "decision": null,
-    "builderAgent": "builder-003-rate-limiting",
     "issue": 42,
     "issueUrl": "https://github.com/owner/repo/issues/42",
     "note": null,
@@ -183,9 +186,8 @@ Takes a request (text) and optionally an issue (number + URL).
    folder. It writes `spec.md`.
 4. **Worktree.** `git worktree add .factory-worktrees/<id> -b factory/<id> <baseBranch>`.
    Stage `build`.
-5. **Build.** Spawn the builder (see Spawning agents) with the worktree, branch, job
-   folder, `spec.md` and `project.md`. It commits on the branch and writes
-   `build.md`. Check that `build.md` exists and the branch has commits ahead of
+5. **Build.** Spawn a builder (see Spawning agents) for the first build. It commits
+   on the branch and writes `build.md`. Check that `build.md` exists and the branch has commits ahead of
    baseBranch (`git rev-list --count <base>..factory/<id>`); if not, treat as a
    missing file.
 6. **Review round** (see below), starting at round 1.
@@ -203,8 +205,9 @@ Whenever a job with an `issue` changes to `needs-human`, comment on the issue (s
    `round-N/round.md` and `round-N/round.json` and prints one line of JSON. If it
    exits non-zero, stage `needs-human` with its error as the note.
    - `"ok": false` → the checks failed (or the worktree had uncommitted changes).
-     Resume the builder: "The checks failed on your last commit; the output is in
-     `<abs round.md>`. Fix the cause, commit, and reply when done." Then run round.mjs
+     Spawn a fresh builder on the fix model: "Check fix: the checks failed on the last
+     commit; the output is in `<abs round.md>`. Fix the cause, commit, and reply with
+     one line." Then run round.mjs
      again. The stage stays `review` meanwhile. After two failed fix attempts, stage
      `needs-human`, note `checks still failing: <failed>`.
    - `"ok": true` → `run` lists the reviewers to spawn, each with its model; `skipped`
@@ -218,11 +221,10 @@ Whenever a job with an `issue` changes to `needs-human`, comment on the issue (s
    exists with a valid verdict line. Re-spawn any that don't, once. Still missing →
    stage `needs-human`, note `reviewer <name> produced no verdict in round N`.
 6. Then, looking only at the reviewers that ran this round:
-   - **Any CHANGES and N < roundLimit** → stage `build`. Resume the builder with
-     SendMessage: "Round N reviews are in `<abs round folder>`. Address every
-     CHANGES finding (and `human.md` / `decision.md` if present), commit, append a
-     `## Round N response` section to build.md, and reply with one line." Check new
-     commits exist, then run review round N+1.
+   - **Any CHANGES and N < roundLimit** → stage `build`. Spawn a fresh builder on the
+     fix model: "Round N reviews are in `<abs round folder>`. Address every CHANGES
+     finding, commit, append a `## Round N response` section to build.md, and reply
+     with one line." Check new commits exist, then run review round N+1.
    - **Any CHANGES and N = roundLimit** → stage `needs-human`, note
      `still CHANGES after N rounds: <reviewers>`.
    - **All PASS** → **Approval**.
@@ -430,8 +432,8 @@ run **Status**. Otherwise pick up from where the files say it got to:
 - `build`: worktree missing → recreate it from the existing branch
   (`git worktree add .factory-worktrees/<id> factory/<id>`). If round is 0 and
   `build.md` exists with commits ahead → review round 1. If round ≥ 1 and build.md has
-  a `## Round <round> response` section → review round `round + 1`. Otherwise
-  (re)spawn the builder for the current step.
+  a `## Round <round> response` section → review round `round + 1`. Otherwise spawn
+  a fresh builder for the current step.
 - `review`: if `round-N/round.json` is missing or its checks didn't pass, start from
   step 2 of Review round. Otherwise spawn only the reviewers it selected whose round-N
   file is missing or invalid, then continue from step 4.
@@ -454,8 +456,12 @@ active.
 2. If `decision.md` exists, move it to `round-N/decision.md` so history is kept.
 3. Set `roundLimit` = N + `config.maxRounds`, `decision` = null, clear `note`, stage
    `build`.
-4. Recreate the worktree if it's gone. Resume or respawn the builder pointing at
-   `round-N/` (as in step 6 of Review round), then run review round N+1.
+4. Recreate the worktree if it's gone. Spawn a fresh builder on `config.models.builder`
+   (human feedback is often a real bug to track down, so not the fix model): "Rework:
+   human feedback is in `<abs round-N>/human.md`; read `decision.md` and any
+   `review-*.md` there too. Address it, commit, append a `## Round N response`
+   section to build.md, and reply with one line." Check new commits exist, then run
+   review round N+1.
 
 ## Add reviewer
 

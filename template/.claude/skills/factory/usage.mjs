@@ -115,8 +115,11 @@ export function jobOf(prompt) {
   return prompt.match(/factory\/jobs\/([A-Za-z0-9._-]+)/)?.[1] || null;
 }
 
-export function roundOf(prompt) {
-  const m = prompt.match(/round-(\d+)\/review-/);
+// A reviewer's round is in its output path. A builder follow-up (check fix, review
+// round, rework) is pointed at the round folder it responds to.
+export function roundOf(prompt, agent = '') {
+  const m = prompt.match(/round-(\d+)\/review-/)
+    || (agent.endsWith('builder') ? prompt.match(/round-(\d+)\//) : null);
   return m ? Number(m[1]) : null;
 }
 
@@ -151,7 +154,7 @@ export function recordAgent(root, { agentId, agentType, transcript, job }, overr
   writeJsonAtomic(file, {
     agentId,
     agent: agentType.replace(/^factory-/, ''),
-    round: before?.round ?? roundOf(s.prompt),
+    round: before?.round ?? roundOf(s.prompt, agentType),
     transcript: shortPath(path),
     models: perModel,
     tokens: Object.values(s.models).reduce((n, t) => n + tokensOf(t), 0),

@@ -33,7 +33,10 @@ Write exactly one file: `<job folder>/spec.md`. Don't change anything else.
 What this achieves and for whom, in two or three sentences.
 
 ## Context
-The existing code this touches: files, modules, patterns to follow.
+The code map the builder works from, so it doesn't have to explore the repo:
+- `path/to/file.ts:40-95` — `functionName`: what it does; change it to …
+- `path/to/similar.ts:10-60` — pattern to copy for …
+- `path/to/file.test.ts` — existing tests to extend; how they're set up.
 
 ## Scope
 - What will be built.
@@ -54,6 +57,9 @@ Decisions you made where the request was ambiguous, so a human can spot a wrong 
 
 ## Guidance
 
+- Make Context precise. The builder reads only what it lists, so give every file it
+  will change or copy from, with line ranges and the names of the functions,
+  components or tables involved. Leave out files you looked at that don't matter.
 - Keep it as small as the request allows. Prefer three sharp criteria to ten vague
   ones.
 - Each criterion must be checkable from code and tests: "returns 429 after 100

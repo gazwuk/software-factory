@@ -49,6 +49,9 @@ test('summarizeTranscript counts each response once and excludes waiting time', 
   assert.equal(s.activeSeconds, 60 + 30);
   assert.equal(jobOf(s.prompt), '001-x');
   assert.equal(roundOf(s.prompt), 1);
+  assert.equal(roundOf('Round 2 reviews are in /r/factory/jobs/001-x/round-2/.', 'factory-builder'), 2);
+  assert.equal(roundOf('Build factory job 001-x. Job folder: /r/factory/jobs/001-x/', 'factory-builder'), null);
+  assert.equal(roundOf('Final round: /r/factory/jobs/001-x/round-2/round.md', 'factory-approver'), null);
 });
 
 test('prices match the longest model prefix, and cache writes are priced by TTL', () => {

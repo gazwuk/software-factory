@@ -116,6 +116,7 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
   "models": {
     "spec-writer": "opus",
     "builder": "opus",
+    "builder-fix": "sonnet",
     "approver": "opus"
   },
   "reviewers": {
@@ -152,7 +153,7 @@ feature
                                     picks reviewers + models → round-N/round.md, round.json
   → selected reviewers in parallel, each writes round-N/review-<name>.md
   → WAIT FOR ALL (selected)
-      any CHANGES and round < maxRounds → resume builder with round folder, loop
+      any CHANGES and round < maxRounds → fresh builder with round folder, loop
       any CHANGES and round = maxRounds → needs-human
       all PASS → approver
   → approver                        writes decision.md
@@ -243,9 +244,13 @@ Every agent replies to the orchestrator with one line; the detail is in its file
    per selected reviewer, diff stat) and `round.json`, and prints a one-line JSON
    summary.
 
-**Builder lifecycle:** spawned once per job as `builder-<job-id>`, resumed with
-SendMessage each round, pointed at the round folder. If the session has ended (no
-live builder to resume), spawn a fresh one — the files carry all the context it needs.
+**Builder lifecycle:** a fresh builder for every step — first build, each check fix,
+each review round, each rework — never resumed with SendMessage. A resumed builder
+carries the first build's whole context (often 150k+ tokens) into every turn of the
+follow-up, which made follow-ups most of a job's cost. The files (spec.md with its
+code map, build.md, the round folder, the branch) carry what a new builder needs.
+Check and review fixes run on `models["builder-fix"]` (Sonnet by default); the first
+build and human rework on `models.builder`.
 
 **Reviewer contract:** the shared rules (inputs, read-only, blocking vs
 non-blocking, converge in later rounds, output format) live once in
@@ -293,7 +298,6 @@ The orchestrator is its only writer. Shape:
       { "security": "pending", "ux": "SKIPPED", "ui": "SKIPPED", "code": "pending" }
     ],
     "decision": null,
-    "builderAgent": "builder-003-rate-limiting",
     "issue": 42,
     "issueUrl": "https://github.com/owner/repo/issues/42",
     "note": null,
@@ -309,7 +313,6 @@ The orchestrator is its only writer. Shape:
   its previous verdict stands).
 - `reviewers` is snapshotted at job start, so config changes don't affect running jobs.
 - `roundLimit` starts at `maxRounds`; a rework raises it to `round + maxRounds`.
-- `builderAgent` is the name or agent id the orchestrator resumes with SendMessage.
 - `note` is a one-line reason shown on needs-human and failed cards.
 - Job IDs: zero-padded sequence + slug of the feature title.
 - Kept as a `jobs` array (not a single job) so parallel jobs need no schema change.
@@ -338,13 +341,14 @@ One self-contained HTML file, no build step, no external requests.
 `usage.mjs` runs as an async SubagentStop hook. For a `factory-*` agent it waits for
 the transcript to flush, reads `agent_transcript_path`, and sums `message.usage` per
 model (deduplicated by message id). Job id comes from the agent's first prompt (the
-`factory/jobs/<id>/` path it was given), round from its `round-N/review-` output path.
+`factory/jobs/<id>/` path it was given), round from its `round-N/review-` output path
+(for a builder follow-up, the `round-N/` folder it was pointed at).
 
 - Writes `factory/jobs/<id>/usage/<agent-id>.json`: agent, round, transcript (`~`-relative),
   per-model tokens (input, output, cache read, 5m/1h cache writes) and cost, total
   tokens, cost, active seconds (excluding time waiting for the next instruction).
-  One file per agent, so parallel reviewers never write the same file. A resumed
-  builder keeps one file, updated with its running total.
+  One file per agent, so parallel reviewers never write the same file, and each
+  builder step gets its own.
 - Re-reads every transcript of that job, then rebuilds `factory/usage.json` (all jobs)
   with an atomic rename.
 - `usage.mjs refresh [id]` does the same on demand; the orchestrator runs it when a
