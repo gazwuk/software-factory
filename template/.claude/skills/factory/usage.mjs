@@ -166,6 +166,27 @@ export function recordAgent(root, { agentId, agentType, transcript, job }, overr
   return id;
 }
 
+/**
+ * Records one agent the runner ran headlessly (no SubagentStop hook fires for those).
+ * `usage` is what the harness reported: per-model tokens, active seconds and, if it
+ * found one, the transcript, which is preferred because it is more exact.
+ */
+export function recordRun(root, { job, agentType, agentId, round = null, usage }, overrides) {
+  if (usage.transcript && recordAgent(root, { agentId, agentType, transcript: usage.transcript, job }, overrides)) return;
+  const { perModel, costUsd, unpriced } = costOf(usage.models || {}, overrides);
+  writeJsonAtomic(join(root, 'factory/jobs', job, 'usage', `${agentId}.json`), {
+    agentId,
+    agent: agentType.replace(/^factory-/, ''),
+    round,
+    models: perModel,
+    tokens: Object.values(usage.models || {}).reduce((n, t) => n + tokensOf(t), 0),
+    costUsd: unpriced.length ? null : costUsd,
+    unpriced: unpriced.length ? unpriced : undefined,
+    activeSeconds: usage.activeSeconds || 0,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 /** Re-reads every recorded transcript for a job, picking up messages written late. */
 export function refreshJob(root, id, overrides) {
   const dir = join(root, 'factory/jobs', id, 'usage');

@@ -80,7 +80,38 @@ chips that fill in as verdicts land. Click a card to read its spec, build notes,
 reviews, decision and cost. **Stats** shows how often each reviewer asks for changes
 against what it costs, and where the money goes by role, model and job.
 
-One job runs at a time. Jobs waiting for you don't block new ones.
+In a Claude Code session, one job runs at a time. Jobs waiting for you don't block
+new ones. To run several at once, use the headless runner.
+
+### Run it headless
+
+```sh
+npx github:gazwuk/software-factory run --parallel 2
+```
+
+The runner is a Node process that runs the same loop as `/factory` with no Claude Code
+session open. It does the bookkeeping itself: the board, worktrees, checks, verdicts,
+retries, merges and GitHub comments. It starts each agent with `claude -p`. That
+leaves no orchestrator conversation to pay for or fill up, and checks run with no time
+limit. The runner resumes any active jobs, then takes tasks from the backlog (or
+GitHub) until none are left, keeping up to `--parallel` jobs going. Merges happen one
+at a time.
+
+| Command | |
+|---|---|
+| `run [--parallel N]` | Run active and queued jobs until none are left |
+| `run --job <id>` | Run only this job |
+| `approve <id>` | Ship a job that needs a human |
+| `rework <id> <note>` | Send a job that needs a human back to the builder |
+
+To stop the runner, press Ctrl+C. Run it again and it carries on where each job got to.
+Set `runner.headless` to `true` in config and `/factory next`, `/factory <feature>`,
+`/factory issue`, `resume`, `approve` and `rework` hand their work to the runner in
+the background, while the session stays free.
+
+Each agent may use only the tools its definition lists (`tools:` in
+`.claude/agents/factory-*.md`). Anything else is refused rather than prompted, because
+nobody is there to answer.
 
 ## Giving it work
 
@@ -141,10 +172,13 @@ out.
 
 ```
 .claude/
-  skills/factory/SKILL.md        the orchestrator: runs the loop, only writer of board.json
+  skills/factory/SKILL.md        the orchestrator: runs the loop, or hands it to the runner
   skills/factory/reviewer-contract.md
   skills/factory/round.mjs       runs the checks and picks the reviewers each round
   skills/factory/usage.mjs       records each agent's tokens and cost
+  skills/factory/board.mjs       changes board.json under a lock; claims job ids
+  skills/factory/runner.mjs      the headless runner
+  skills/factory/harness/        how the runner starts agents (claude-code.mjs)
   settings.json                  gains a SubagentStop hook that runs usage.mjs
   agents/factory-*.md            spec-writer, builder, approver, and one per reviewer
 factory/
@@ -153,6 +187,7 @@ factory/
   backlog.md                     feature queue
   board.json                     live state (gitignored)
   usage.json                     cost summary for the dashboard (gitignored)
+  .locks/                        locks for the runner and board writes (gitignored)
   dashboard.html
   jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,review-*.md}, decision.md, usage/
 ```
@@ -172,6 +207,8 @@ folder is committed as a record of what happened.
   "onApprove": "merge",
   "tasks": { "source": "backlog", "githubLabel": "factory" },
   "checks": { "test": "npm test", "lint": "npm run lint" },
+  "runner": { "headless": false, "harness": "claude-code", "parallel": 1,
+              "maxParallelChecks": 1, "permissionMode": "dontAsk" },
   "models": { "spec-writer": "opus", "builder": "opus", "builder-fix": "sonnet", "approver": "opus" },
   "reviewers": {
     "security": { "model": "sonnet", "enabled": true,
@@ -197,6 +234,15 @@ folder is committed as a record of what happened.
 - `reviewers.<name>.escalatePaths` / `escalateModel`: use `escalateModel` instead of
   `model` when the change touches these files.
 - Turn a reviewer off with `"enabled": false` rather than deleting it.
+- `runner.headless`: hand `/factory` jobs to the headless runner.
+  `runner.parallel` is the default for `--parallel`. `runner.maxParallelChecks` caps
+  how many jobs run their checks at the same time (1 by default, so test suites don't
+  fight over ports or databases).
+- `runner.permissionMode`: passed to `claude --permission-mode`. The default,
+  `dontAsk`, refuses tools an agent doesn't list. `runner.command` replaces the
+  `claude` command, as a string or an argv array.
+- `runner.harness`: which file in `skills/factory/harness/` starts agents. Only
+  `claude-code` ships today. Another harness needs one file that exports `runAgent()`.
 
 ### Checks and reviewer selection
 
@@ -225,6 +271,8 @@ to your repo.
 `init` adds a `SubagentStop` hook to `.claude/settings.json`. When a factory agent
 finishes, the hook reads that agent's transcript and writes its tokens, estimated cost
 and working time to `factory/jobs/<id>/usage/`. The record is committed with the job.
+The headless runner's agents don't trigger the hook, so the runner records them itself
+in the same files.
 
 Costs are estimated at Anthropic API list prices, built into `usage.mjs` (and kept
 current by `update`). On a Claude subscription you aren't billed per token, but the
@@ -259,6 +307,17 @@ repo. Your config values, backlog, jobs and
 custom reviewers are never touched. If you've edited one of the factory's files, your
 version is kept and the new one is saved beside it as `.new` for you to merge
 (`--force` overwrites instead).
+
+Before updating, let any job running in a Claude Code session finish or stop, and
+start a new session afterwards so `/factory` loads the new skill.
+
+**Upgrading to 0.3** (the headless runner): `update` adds `runner.mjs`, `board.mjs`
+and `harness/`, adds a `runner` section to config (`headless: false`, so `/factory`
+keeps working as before), and gitignores `factory/.locks/`. Jobs and the board are
+unchanged. If you'd edited `SKILL.md`, merge `SKILL.md.new` before using `run`: the
+new skill writes the board through `board.mjs`, so a session and a runner can work
+side by side. `run` needs a Claude Code recent enough for `claude -p --agent` with
+`--permission-mode dontAsk`; it checks before it starts.
 
 ## Tips
 

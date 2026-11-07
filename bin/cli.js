@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { dashboard } from '../src/dashboard.js';
 import { init } from '../src/init.js';
+import { runner } from '../src/run.js';
 import { update } from '../src/update.js';
 import { CliError, INSTALL_CMD, packageVersion } from '../src/util.js';
 
@@ -10,10 +11,17 @@ Usage:
   ${INSTALL_CMD} init                 Install the factory into this repo
   ${INSTALL_CMD} update [--force]     Refresh the factory's files, keeping your settings and jobs
   ${INSTALL_CMD} dashboard [options]  Serve the live board in your browser
+  ${INSTALL_CMD} run [options]        Run jobs headlessly, from the backlog or GitHub, until none are left
+  ${INSTALL_CMD} approve <id>         Ship a job that needs a human
+  ${INSTALL_CMD} rework <id> <note>   Send a job that needs a human back to the builder
 
 Dashboard options:
   --port <number>   Port to serve on (default 4321, or the next free one)
   --no-open         Don't open a browser
+
+Run options:
+  --parallel <n>    Jobs to run at once (default config.runner.parallel, else 1)
+  --job <id>        Run only this job
 
 Then, in Claude Code:  /factory setup  ·  /factory <feature>  ·  /factory next`;
 
@@ -36,8 +44,16 @@ function parse(argv) {
   return opts;
 }
 
+const RUNNER_COMMANDS = new Set(['run', 'approve', 'rework']);
+
 async function main() {
-  const opts = parse(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  // The runner commands are handled, options and all, by the runner installed in the repo.
+  if (RUNNER_COMMANDS.has(argv[0])) {
+    process.exitCode = await runner(process.cwd(), argv);
+    return;
+  }
+  const opts = parse(argv);
   const [command] = opts.positional;
   if (opts.version) return console.log(packageVersion());
   if (opts.help || !command) return console.log(HELP);

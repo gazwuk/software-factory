@@ -1,6 +1,6 @@
 {
   "name": "@gazwuk/software-factory",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "A Claude Code software factory: /factory takes a feature from spec to merged code through a builder, parallel reviewers and an approver, with a live dashboard.",
   "type": "module",
   "bin": {
@@ -12,7 +12,7 @@
     "template"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=18"

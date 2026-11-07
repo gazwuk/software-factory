@@ -53,6 +53,7 @@ test('init installs every template file and records package-owned hashes', () =>
   const ignore = read(dir, '.gitignore');
   assert.match(ignore, /^factory\/board\.json$/m);
   assert.match(ignore, /^\.factory-worktrees\/$/m);
+  assert.match(ignore, /^factory\/\.locks\/$/m);
 });
 
 test('init works from a subdirectory and installs at the repo root', () => {
@@ -192,7 +193,22 @@ test('dashboard serves factory/ and blocks paths outside it', async () => {
 
 test('cli prints help and rejects unknown commands', () => {
   assert.match(run(tempDir()).out, /Usage:/);
+  assert.match(run(tempDir()).out, /run \[options\][\s\S]*--parallel <n>/);
   const r = run(tempDir(), 'frobnicate');
   assert.equal(r.code, 1);
   assert.match(r.out, /Unknown command/);
+});
+
+test('runner commands need the factory installed, and reject bad options', () => {
+  const missing = run(repo(), 'run');
+  assert.equal(missing.code, 1);
+  assert.match(missing.out, /no \.claude\/skills\/factory\/runner\.mjs/);
+
+  const dir = repo();
+  run(dir, 'init');
+  const bad = run(dir, 'run', '--parallel', '0');
+  assert.equal(bad.code, 1);
+  assert.match(bad.out, /--parallel takes a whole number/);
+  assert.match(run(dir, 'run', '--help').out, /node runner\.mjs run \[--parallel N\]/);
+  assert.match(run(dir, 'approve', '001-nope').out, /No job 001-nope on the board/);
 });
