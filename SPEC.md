@@ -69,6 +69,9 @@ Node >= 18.
     templates/reviewer.md            # scaffold for custom reviewers      [package]
     round.mjs                        # checks gate + reviewer selection   [package]
     usage.mjs                        # cost tracking (SubagentStop hook)  [package]
+    board.mjs                        # locked board writes, job id claims [package]
+    runner.mjs                       # headless runner                    [package]
+    harness/claude-code.mjs          # starts agents with claude -p       [package]
   agents/
     factory-spec-writer.md                                               [package]
     factory-builder.md                                                   [package]
@@ -84,6 +87,7 @@ factory/
   backlog.md                         # feature queue                     [user]
   board.json                         # durable state, drives dashboard   [user, gitignored]
   usage.json                         # cost summary, rebuilt by usage.mjs [user, gitignored]
+  .locks/                            # lock folders (pid inside, renamed into place): board, ids, backlog, ship, runner, job-<id> [gitignored]
   dashboard.html                                                         [package]
   .manifest.json                                                         [package]
   jobs/<job-id>/                     # one folder per job                [user]
@@ -113,6 +117,13 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
     "githubLabel": "factory"
   },
   "checks": { "test": "npm test", "lint": "npm run lint" },
+  "runner": {
+    "headless": false,
+    "harness": "claude-code",
+    "parallel": 1,
+    "maxParallelChecks": 1,
+    "permissionMode": "dontAsk"
+  },
   "models": {
     "spec-writer": "opus",
     "builder": "opus",
@@ -142,6 +153,7 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
   when the whole change touches matching files.
 - `tasks.source`: where `/factory next` and `/factory backlog` read and write tasks —
   `"backlog"` (factory/backlog.md) or `"github"` (issues labelled `tasks.githubLabel`).
+- `runner`: see **Runner**. `command` (optional) replaces the `claude` binary.
 
 ## The loop
 
@@ -263,6 +275,58 @@ reviewer has an agent file and fails fast if not. A reviewer added mid-session m
 be loaded by Claude Code until restart; the orchestrator then falls back to a
 general-purpose agent given that file's body.
 
+## Runner
+
+`runner.mjs` is the loop in code, so jobs run with no Claude Code session. The CLI's
+`run`, `approve` and `rework` import the copy installed in the repo, which therefore
+always matches the repo's skill and agents.
+
+- **Next step from files.** `nextAction(job, facts)` is a pure function of the board
+  entry and the job's files (spec.md, worktree, commits ahead, build.md and its
+  `## Round N response` sections, round.json, review verdicts, decision.md). It encodes
+  SKILL.md's Resume rules. The runner applies it after every step, so a killed runner
+  resumes from the files. The board keeps only what files can't show: check-fix
+  attempts, in `job.runner.checkFixes`.
+- **Agents** run through a harness module, `harness/<config.runner.harness>.mjs`. It
+  exports `runAgent({ root, agent, model, prompt, tools, options, signal })` →
+  `{ ok, sessionId, error, usage }` and optionally `preflight(options)`. `claude-code`
+  runs `claude -p --agent factory-<name> --model <m> --output-format json
+  --permission-mode <mode> --allowedTools <the agent's tools:>` from the repo root,
+  with the prompt on stdin. Prompts are the ones SKILL.md gives. A fresh agent for
+  every step, never resumed. An agent that doesn't write its file runs once more, then
+  the job goes to needs-human.
+- **Checks** run as `node round.mjs` child processes with no timeout, at most
+  `maxParallelChecks` at once. Agents and checks run in their own process groups, so
+  stopping the runner stops them too.
+- **Cost:** no SubagentStop hook fires for `claude -p` agents. The runner calls
+  `usage.mjs` `recordRun`, which reads the session transcript when it's found, and
+  otherwise the JSON result's `modelUsage`.
+- **Scheduling:** `run` takes the `runner` lock (one scheduler per repo). It adopts
+  active jobs, then claims tasks from `tasks.source`, keeping up to `--parallel` jobs
+  going, and exits when none are left. Each job is driven under its own `job-<id>`
+  lock, so `run --job`, `rework` and a scheduler never drive the same job twice.
+- **Shared state:** board.json changes go through `board.mjs` `updateJob` (lock, read,
+  merge one job, atomic rename), from the runner and from SKILL.md alike. Job ids are
+  claimed under a lock with a non-recursive `mkdir`. Backlog items are ticked off, and
+  added (`board.mjs backlog-add`), under a lock. A job is created before its item is
+  ticked; one marked `pendingBacklogItem` took its item before a crash and gets the
+  tick on the next claim.
+- **Locks** are folders holding the holder's pid, renamed into place, so none is ever
+  seen without its holder. A lock whose holder has exited is cleared only by the
+  process that creates its `<lock>.reclaim-<pid>` marker, and only if it still names
+  that pid. `board.mjs runner` lists live runner processes (the scheduler and each
+  `job-<id>` holder), which SKILL.md checks before driving a job itself.
+- **Recovery:** each job's agent and check process groups are listed in
+  `job-<id>.agents`; a process that takes over a crashed runner's job stops them
+  first. Before each step the current round's verdicts are copied from the files to
+  the board. A ship checkpoints `runner.merged` before cleaning up, so a ship that
+  stopped part-way carries on without merging again, and a failed record commit goes to
+  needs-human for `approve` to retry. `approve` and `rework` hold the job's lock
+  throughout.
+- **Ship:** merges, worktree changes and record commits in the main checkout happen
+  under the `ship` lock, one at a time across processes. A conflict still goes to
+  needs-human.
+
 ## Worktrees and git
 
 - Builder works in `.factory-worktrees/<job-id>` on branch `factory/<job-id>`, created
@@ -279,7 +343,8 @@ general-purpose agent given that file's body.
 
 ## board.json
 
-The orchestrator is its only writer. Shape:
+Written only through `board.mjs` (by the orchestrator and the runner), one job at a
+time, under a lock. Shape:
 
 ```json
 {
@@ -362,12 +427,12 @@ model (deduplicated by message id). Job id comes from the agent's first prompt (
 
 ```
 package.json        # name @gazwuk/software-factory (ready for npm later), single bin: software-factory, files: [bin, src, template]
-bin/cli.js          # arg parsing → init | update | dashboard
+bin/cli.js          # arg parsing → init | update | dashboard | run | approve | rework
 src/                # init, update, dashboard server, manifest/hashing
 template/           # exactly what lands in the user's repo
 README.md
 LICENSE             # MIT
-test/               # node:test — init/update/dashboard against temp git repos
+test/               # node:test — init/update/dashboard, board locks, the runner (with a fake claude) against temp git repos
 ```
 
 ## Changes from the reference
