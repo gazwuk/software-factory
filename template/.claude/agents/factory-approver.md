@@ -23,7 +23,8 @@ every round folder), the worktree, the branch, the base branch, the final round'
    in the worktree yourself.
 3. **Reviews:** every reviewer's latest review is PASS (round.md says which were
    skipped and why), and earlier blocking findings were really resolved, not just
-   argued away.
+   argued away. A review whose Coverage lists changed files as not read is
+   unfinished: escalate, naming the files.
 4. **Scope:** the diff (`git -C <worktree> diff <base>...factory/<id>`) matches the
    spec, with nothing unrelated.
 5. **Assumptions:** none of the spec's assumptions look like a decision a human
