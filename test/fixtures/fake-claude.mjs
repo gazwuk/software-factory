@@ -1,5 +1,6 @@
 // Stands in for `claude -p --agent factory-<name>` in the runner tests: reads the
-// prompt from stdin, writes the file that agent would write, and prints a JSON result.
+// prompt from stdin, writes the file that agent would write, and prints stream-json
+// events (one tool call, then the result).
 //
 // Env: FAKE_LOG=<file> appends one JSON line per run ({ agent, model, args }).
 //      FAKE_BUILDER_HANG=<marker> makes the first builder run hang until killed.
@@ -11,7 +12,7 @@ import { basename, join } from 'node:path';
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
-  console.log('  --agent <agent>\n  --allowedTools <tools...>\n  --output-format <format>\n  --permission-mode <mode> (choices: "default", "dontAsk")');
+  console.log('  --agent <agent>\n  --allowedTools <tools...>\n  --output-format <format> "json" or "stream-json"\n  --permission-mode <mode> (choices: "default", "dontAsk")\n  --verbose');
   process.exit(0);
 }
 const flag = (name) => args[args.indexOf(name) + 1];
@@ -21,6 +22,11 @@ const line = (label) => new RegExp(`^- ${label}[^:]*: (\\S+)`, 'm').exec(prompt)
 const once = (marker) => marker && !existsSync(marker) && (writeFileSync(marker, ''), true);
 
 if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ agent, model: flag('--model'), args })}\n`);
+
+// One tool call, as stream-json reports it.
+console.log(JSON.stringify({ type: 'assistant', parent_tool_use_id: null, message: { content: [
+  { type: 'tool_use', name: 'Read', input: { file_path: line('Spec') || line('Request') || prompt.split('\n')[0] } },
+] } }));
 
 if (agent === 'spec-writer') {
   writeFileSync(line('Output'), '# Spec\n\n## Goal\nDo the thing.\n\n## Acceptance criteria\n1. The thing is done.\n');

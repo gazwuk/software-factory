@@ -16,8 +16,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  claimBacklogItem, claimJobId, getJob, lockHolder, lockPath, readBoard, readJson, slugify,
-  tryLock, unlock, updateJob, withLockAsync,
+  claimBacklogItem, claimJobId, getJob, lockHolder, lockPath, now, readBoard, readJson, slugify,
+  tryLock, unlock, updateJob, withLockAsync, writeJsonAtomic,
 } from './board.mjs';
 import { rebuildSummary, recordRun, refreshJob } from './usage.mjs';
 
@@ -26,6 +26,8 @@ const ACTIVE = new Set(['spec', 'build', 'review', 'approval']);
 const CHECK_FIX_LIMIT = 2;
 const TRIES = 2; // an agent that doesn't write its file runs once more
 const UNCONFIGURED = '<!-- factory:unconfigured -->';
+const HEARTBEAT_MS = 15_000; // how often factory/activity/<id>.json is rewritten while a step runs
+const QUIET_MS = 60_000; // a step this long with no tool calls gets a "still working" line
 
 const USAGE = `Usage:
   node runner.mjs run [--parallel N] [--job <id>]   run jobs until nothing is left
@@ -216,14 +218,26 @@ export function agentTools(root, agent) {
 /** Runs an agent until done() holds, at most TRIES times. Records its cost each time. */
 async function agentStep(ctx, job, { agent, model, prompt, round = null, done }) {
   const { root, config, signal } = ctx;
+  const p = paths(root, job);
+  // Paths in the worktree or repo read relative to it.
+  const short = (text, max = 120) => {
+    const s = String(text).split(`${p.worktree}/`).join('').split(`${root}/`).join('');
+    return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+  };
   for (let attempt = 1; attempt <= TRIES; attempt++) {
     signal.throwIfAborted();
     ctx.log(job.id, `${agent} started (${model})`);
+    const step = begin(ctx, job.id, agent, model);
     let release = () => {};
     const result = await ctx.harness.runAgent({
       root, agent, model, prompt, tools: agentTools(root, agent), options: config.runner, signal,
       onSpawn: (pid) => { release = track(ctx, job.id, pid); },
-    }).finally(() => release());
+      onActivity: (text) => step.note(short(text)),
+    }).finally(() => { release(); step.end(); });
+    if (!signal.aborted && result.ok) {
+      const reply = result.reply?.split('\n', 1)[0];
+      ctx.log(job.id, `${agent} finished in ${elapsed(step.startedAt)}${reply ? `: ${short(reply, 160)}` : ''}`);
+    }
     if (result.sessionId) {
       try {
         recordRun(root, { job: job.id, agentType: `factory-${agent}`, agentId: result.sessionId, round, usage: result.usage }, config.pricing);
@@ -309,12 +323,15 @@ async function perform(ctx, job, action, facts) {
       return;
 
     case 'checks': {
+      const names = Object.keys(config.checks || {});
+      ctx.log(id, `round ${action.n}: running checks${names.length ? ` (${names.join(', ')})` : ''}`);
       const out = await ctx.checks(() => {
         signal.throwIfAborted(); // queued while the runner was stopped
+        const step = begin(ctx, id, 'checks', null, names.join(', ') || null);
         let release = () => {};
         return runNode(join(HERE, 'round.mjs'), [id, String(action.n)], {
           cwd: root, signal, onSpawn: (pid) => { release = track(ctx, id, pid); },
-        }).finally(() => release());
+        }).finally(() => { release(); step.end(); });
       });
       signal.throwIfAborted();
       if (out.code !== 0) return needsHuman(ctx, id, out.stderr.trim().split('\n').pop() || `round.mjs exited ${out.code}`);
@@ -658,7 +675,73 @@ async function drive(ctx, id, { locked = false } = {}) {
   } catch (err) {
     if (!ctx.signal.aborted) throw err;
   } finally {
+    rmSync(activityFile(ctx.root, id), { force: true });
     if (!locked) unlock(lock);
+  }
+}
+
+// ---------- what's running now ----------
+
+// factory/activity/<id>.json says what a job's agents and checks are doing, for the
+// dashboard. Only the process holding the job's lock writes it. It's rewritten every
+// HEARTBEAT_MS while anything runs, so a file whose updatedAt has gone stale was left
+// by a runner that stopped.
+export const activityFile = (root, id) => join(root, 'factory/activity', `${id}.json`);
+
+const elapsed = (since) => {
+  const s = Math.round((Date.now() - since) / 1000);
+  return s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`;
+};
+
+function saveActivity(ctx, id) {
+  const steps = [...(ctx.activity.get(id) || [])];
+  try {
+    if (!steps.length) return rmSync(activityFile(ctx.root, id), { force: true });
+    writeJsonAtomic(activityFile(ctx.root, id), {
+      pid: process.pid,
+      updatedAt: now(),
+      steps: steps.map((s) => ({
+        name: s.name, model: s.model, startedAt: new Date(s.startedAt).toISOString(),
+        last: s.last, lastAt: s.lastAt ? new Date(s.lastAt).toISOString() : null,
+      })),
+    });
+  } catch { /* progress never fails a job */ }
+}
+
+/** Starts showing a step (an agent, or the checks) as running for a job. */
+function begin(ctx, id, name, model = null, last = null) {
+  const step = { name, model, startedAt: Date.now(), last, lastAt: null, quietFrom: Date.now() };
+  const steps = ctx.activity.get(id) || new Set();
+  ctx.activity.set(id, steps.add(step));
+  saveActivity(ctx, id);
+  ctx.heartbeat ||= setInterval(() => heartbeat(ctx), HEARTBEAT_MS).unref();
+  return {
+    startedAt: step.startedAt,
+    note(text) {
+      step.last = text;
+      step.lastAt = step.quietFrom = Date.now();
+      ctx.log(id, `${name}: ${text}`);
+      saveActivity(ctx, id);
+    },
+    end() {
+      steps.delete(step);
+      if (!steps.size) ctx.activity.delete(id);
+      saveActivity(ctx, id);
+      if (!ctx.activity.size) ctx.heartbeat = clearInterval(ctx.heartbeat);
+    },
+  };
+}
+
+// Keeps the activity files fresh, and says so in the log when a step has gone quiet
+// (a long test run, or the model thinking), so a quiet runner never looks stuck.
+function heartbeat(ctx) {
+  for (const [id, steps] of ctx.activity) {
+    for (const s of steps) {
+      if (Date.now() - s.quietFrom < QUIET_MS) continue;
+      s.quietFrom = Date.now();
+      ctx.log(id, `${s.name} still working (${elapsed(s.startedAt)}${s.last ? `; last: ${s.last}` : ''})`);
+    }
+    saveActivity(ctx, id);
   }
 }
 
@@ -838,6 +921,8 @@ export async function main(argv, { root, log = console.log, error = console.erro
       git: (fn) => withLockAsync(lockPath(root, 'ship'), fn, { signal: controller.signal }),
       log: (id, line) => log(`[${id}] ${line}`),
       children: {},
+      activity: new Map(),
+      heartbeat: null,
     };
     ctx.gh = github(ctx);
     process.on('SIGINT', stop);
