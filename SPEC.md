@@ -307,8 +307,22 @@ always matches the repo's skill and agents.
   lock, so `run --job`, `rework` and a scheduler never drive the same job twice.
 - **Shared state:** board.json changes go through `board.mjs` `updateJob` (lock, read,
   merge one job, atomic rename), from the runner and from SKILL.md alike. Job ids are
-  claimed under a lock with a non-recursive `mkdir`. Backlog items are ticked off under
-  a lock.
+  claimed under a lock with a non-recursive `mkdir`. Backlog items are ticked off, and
+  added (`board.mjs backlog-add`), under a lock. A job is created before its item is
+  ticked; one marked `pendingBacklogItem` took its item before a crash and gets the
+  tick on the next claim.
+- **Locks** are folders holding the holder's pid, renamed into place, so none is ever
+  seen without its holder. A lock whose holder has exited is cleared only by the
+  process that creates its `<lock>.reclaim-<pid>` marker, and only if it still names
+  that pid. `board.mjs runner` lists live runner processes (the scheduler and each
+  `job-<id>` holder), which SKILL.md checks before driving a job itself.
+- **Recovery:** each job's agent and check process groups are listed in
+  `job-<id>.agents`; a process that takes over a crashed runner's job stops them
+  first. Before each step the current round's verdicts are copied from the files to
+  the board. A ship checkpoints `runner.merged` before cleaning up, so a ship that
+  stopped part-way carries on without merging again, and a failed record commit goes to
+  needs-human for `approve` to retry. `approve` and `rework` hold the job's lock
+  throughout.
 - **Ship:** merges, worktree changes and record commits in the main checkout happen
   under the `ship` lock, one at a time across processes. A conflict still goes to
   needs-human.

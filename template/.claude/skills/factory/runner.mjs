@@ -217,10 +217,13 @@ export function agentTools(root, agent) {
 async function agentStep(ctx, job, { agent, model, prompt, round = null, done }) {
   const { root, config, signal } = ctx;
   for (let attempt = 1; attempt <= TRIES; attempt++) {
+    signal.throwIfAborted();
     ctx.log(job.id, `${agent} started (${model})`);
+    let release = () => {};
     const result = await ctx.harness.runAgent({
       root, agent, model, prompt, tools: agentTools(root, agent), options: config.runner, signal,
-    });
+      onSpawn: (pid) => { release = track(ctx, job.id, pid); },
+    }).finally(() => release());
     if (result.sessionId) {
       try {
         recordRun(root, { job: job.id, agentType: `factory-${agent}`, agentId: result.sessionId, round, usage: result.usage }, config.pricing);
@@ -306,7 +309,13 @@ async function perform(ctx, job, action, facts) {
       return;
 
     case 'checks': {
-      const out = await ctx.checks(() => runNode(join(HERE, 'round.mjs'), [id, String(action.n)], { cwd: root, signal }));
+      const out = await ctx.checks(() => {
+        signal.throwIfAborted(); // queued while the runner was stopped
+        let release = () => {};
+        return runNode(join(HERE, 'round.mjs'), [id, String(action.n)], {
+          cwd: root, signal, onSpawn: (pid) => { release = track(ctx, id, pid); },
+        }).finally(() => release());
+      });
       signal.throwIfAborted();
       if (out.code !== 0) return needsHuman(ctx, id, out.stderr.trim().split('\n').pop() || `round.mjs exited ${out.code}`);
       const summary = JSON.parse(out.stdout.trim().split('\n').pop());
@@ -390,24 +399,40 @@ async function ship(ctx, id, approval) {
   const { root, config } = ctx;
   const base = config.baseBranch;
   const branch = `factory/${id}`;
+  const record = `factory/jobs/${id}`;
   return ctx.git(async () => {
-    if (gitTry(['merge-base', '--is-ancestor', branch, base], root) === null) {
-      const current = gitTry(['symbolic-ref', '--short', 'HEAD'], root);
-      if (current !== base) return needsHuman(ctx, id, `check out ${base}, then /factory approve ${id}`);
-      const closes = job.issue ? ` (closes #${job.issue})` : '';
-      try {
-        git(['merge', '--no-ff', branch, '-m', `factory: merge ${id} — ${job.title}${closes}`], root);
-      } catch (err) {
-        if (gitTry(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], root)) gitTry(['merge', '--abort'], root);
-        return needsHuman(ctx, id, `merge failed: ${errorText(err)}`);
+    // The merge is checkpointed on the board before anything is cleaned up, so a ship
+    // that stopped part-way carries on from here instead of merging again.
+    let sha = getJob(root, id).runner?.merged;
+    if (!sha) {
+      if (gitTry(['merge-base', '--is-ancestor', branch, base], root) === null) {
+        const current = gitTry(['symbolic-ref', '--short', 'HEAD'], root);
+        if (current !== base) return needsHuman(ctx, id, `check out ${base}, then /factory approve ${id}`);
+        const closes = job.issue ? ` (closes #${job.issue})` : '';
+        try {
+          git(['merge', '--no-ff', branch, '-m', `factory: merge ${id} — ${job.title}${closes}`], root);
+        } catch (err) {
+          if (gitTry(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], root)) gitTry(['merge', '--abort'], root);
+          return needsHuman(ctx, id, `merge failed: ${errorText(err)}`);
+        }
       }
+      sha = gitTry(['rev-parse', '--short', base], root);
+      updateJob(root, id, (j) => { (j.runner ||= {}).merged = sha; });
     }
-    const sha = gitTry(['rev-parse', '--short', base], root);
     removeWorktree(ctx, id);
-    if (gitTry(['branch', '-d', branch], root) === null) ctx.log(id, `couldn't delete ${branch}; delete it by hand`);
+    if (gitTry(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], root) && gitTry(['branch', '-d', branch], root) === null) {
+      ctx.log(id, `couldn't delete ${branch}; delete it by hand`);
+    }
     finishUsage(ctx, id);
-    gitTry(['add', `factory/jobs/${id}`], root);
-    gitTry(['commit', '-q', '-m', `factory: record job ${id}`, '--', `factory/jobs/${id}`], root);
+    try {
+      git(['add', record], root);
+      // Nothing staged means it's recorded already (a retried ship).
+      if (gitTry(['diff', '--cached', '--quiet', '--', record], root) === null) {
+        git(['commit', '-q', '-m', `factory: record job ${id}`, '--', record], root);
+      }
+    } catch (err) {
+      return needsHuman(ctx, id, `merged as ${sha}, but committing ${record} failed: ${errorText(err)}. Fix that, then /factory approve ${id}`);
+    }
     const done = updateJob(root, id, { stage: 'merged', note: null });
     ctx.log(id, `merged into ${base} as ${sha}`);
     await ctx.gh.comment(done, `Merged into ${base} locally as ${sha}. This issue closes when ${base} is pushed.`);
@@ -502,7 +527,7 @@ function enabledReviewers(config) {
   return Object.entries(config.reviewers || {}).filter(([, r]) => r.enabled !== false).map(([name]) => name);
 }
 
-function createJob(ctx, { id, title, request, issue = null }) {
+function createJob(ctx, { id, title, request, issue = null, pendingBacklogItem }) {
   const { root, config } = ctx;
   writeFileSync(join(root, 'factory/jobs', id, 'request.md'), request.endsWith('\n') ? request : `${request}\n`);
   return updateJob(root, id, {
@@ -519,6 +544,7 @@ function createJob(ctx, { id, title, request, issue = null }) {
     issueUrl: issue?.url ?? null,
     note: null,
     prUrl: null,
+    ...(pendingBacklogItem ? { pendingBacklogItem } : {}),
   });
 }
 
@@ -526,9 +552,23 @@ function createJob(ctx, { id, title, request, issue = null }) {
 async function claimNext(ctx) {
   const { root, config } = ctx;
   if ((config.tasks?.source || 'backlog') === 'backlog') {
-    const item = claimBacklogItem(root, (text) => claimJobId(root, slugify(text)));
+    // The job is created before its item is ticked off. A job still marked
+    // pendingBacklogItem took its item before a crash stopped the tick: tick it for that
+    // job (which runs as an active job) rather than starting it twice.
+    const settled = [];
+    const item = claimBacklogItem(root, ({ text, request }) => {
+      const orphan = readBoard(root).jobs.find((j) => j.pendingBacklogItem === text);
+      if (orphan) {
+        settled.push(orphan.id);
+        return { id: orphan.id, existing: true };
+      }
+      const id = claimJobId(root, slugify(text));
+      createJob(ctx, { id, title: text, request, pendingBacklogItem: text });
+      settled.push(id);
+      return { id };
+    });
+    for (const id of settled) updateJob(root, id, (j) => { delete j.pendingBacklogItem; });
     if (!item) return null;
-    createJob(ctx, { id: item.id, title: item.text, request: item.request });
     ctx.log(item.id, 'claimed from the backlog');
     return item.id;
   }
@@ -582,19 +622,30 @@ function preflight(ctx) {
   }
 }
 
+/**
+ * Takes a job's lock, so no other process drives or changes it, and stops any agents
+ * or checks a crashed runner left running for it. False if a live process has it.
+ */
+async function ownJob(ctx, id) {
+  if (!tryLock(lockPath(ctx.root, `job-${id}`))) return false;
+  await reapOrphans(ctx, id);
+  return true;
+}
+
 /** Drives one job until it leaves the active stages. Only one process drives a job at a time. */
-async function drive(ctx, id) {
+async function drive(ctx, id, { locked = false } = {}) {
   const lock = lockPath(ctx.root, `job-${id}`);
-  if (!tryLock(lock)) {
+  if (!locked && !(await ownJob(ctx, id))) {
     ctx.log(id, 'another process is running this job; leaving it to that one');
     return;
   }
   try {
     for (;;) {
       ctx.signal.throwIfAborted();
-      const job = getJob(ctx.root, id);
+      let job = getJob(ctx.root, id);
       if (!job || !ACTIVE.has(job.stage)) return;
       const facts = readFacts(ctx.root, ctx.config, job);
+      job = reconcile(ctx, job, facts);
       const action = nextAction(job, facts);
       if (!action) return;
       try {
@@ -607,8 +658,56 @@ async function drive(ctx, id) {
   } catch (err) {
     if (!ctx.signal.aborted) throw err;
   } finally {
-    unlock(lock);
+    if (!locked) unlock(lock);
   }
+}
+
+/**
+ * Puts the current round's verdicts from its files onto the board, in case the runner
+ * stopped after a reviewer or round.mjs wrote its file but before the board was updated.
+ */
+export function reconcile(ctx, job, facts) {
+  const n = job.round || 0;
+  const r = facts.round;
+  if (!n || !r?.checks?.ok || r.round !== n || !r.reviewers) return job;
+  const want = Object.fromEntries((job.reviewers || []).map((name) => [name,
+    !r.reviewers[name]?.run ? 'SKIPPED' : facts.reviews[name] || 'pending']));
+  if (JSON.stringify(job.rounds?.[n - 1]) === JSON.stringify(want)) return job;
+  return updateJob(ctx.root, job.id, (j) => { (j.rounds ||= [])[n - 1] = want; });
+}
+
+// ---------- agents a crashed runner left behind ----------
+
+// Each job's running agents and checks, by process group, in factory/.locks/job-<id>.agents.
+// A clean stop empties it; after a crash it names what's still running.
+const agentsFile = (ctx, id) => `${lockPath(ctx.root, `job-${id}`)}.agents`;
+
+function track(ctx, id, pid) {
+  const running = (ctx.children[id] ||= new Set());
+  const save = () => writeFileSync(agentsFile(ctx, id), [...running].join('\n'));
+  running.add(pid);
+  save();
+  return () => {
+    running.delete(pid);
+    save();
+  };
+}
+
+const alive = (pid) => {
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; }
+};
+
+async function reapOrphans(ctx, id) {
+  const pids = (readText(agentsFile(ctx, id)) ?? '').split('\n').map(Number).filter((pid) => pid > 0 && alive(pid));
+  for (const pid of pids) {
+    ctx.log(id, `stopping agent process ${pid}, left running by a runner that stopped`);
+    try { process.kill(-pid, 'SIGTERM'); } catch { /* gone */ }
+  }
+  for (let waited = 0; pids.some(alive) && waited < 10_000; waited += 100) await new Promise((r) => setTimeout(r, 100));
+  for (const pid of pids.filter(alive)) {
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ }
+  }
+  rmSync(agentsFile(ctx, id), { force: true });
 }
 
 /** Resumes active jobs and claims new tasks, keeping up to `parallel` going, until none are left. */
@@ -659,13 +758,15 @@ function limiter(max) {
 
 // round.mjs runs as a child process, in its own process group so stopping the runner
 // also stops the checks it started, and with no time limit.
-function runNode(script, args, { cwd, signal }) {
+function runNode(script, args, { cwd, signal, onSpawn }) {
   return new Promise((done) => {
     const child = spawn(process.execPath, [script, ...args], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (child.pid) onSpawn?.(child.pid);
     let stdout = '';
     let stderr = '';
     const kill = () => { try { process.kill(-child.pid, 'SIGTERM'); } catch { /* gone */ } };
     signal.addEventListener('abort', kill, { once: true });
+    if (signal.aborted) kill(); // aborted already: the listener won't fire
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
     child.on('error', (err) => { stderr += err.message; });
@@ -693,7 +794,10 @@ function parseArgs(argv) {
     else if (arg === '--parallel' || arg.startsWith('--parallel=')) {
       opts.parallel = Number(value());
       if (!Number.isInteger(opts.parallel) || opts.parallel < 1) throw new Error('--parallel takes a whole number, 1 or more');
-    } else if (arg === '--job' || arg.startsWith('--job=')) opts.job = value();
+    } else if (arg === '--job' || arg.startsWith('--job=')) {
+      opts.job = value();
+      if (!opts.job || opts.job.startsWith('-')) throw new Error('--job takes a job id');
+    }
     else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}\n\n${USAGE}`);
     else opts.positional.push(arg);
   }
@@ -733,6 +837,7 @@ export async function main(argv, { root, log = console.log, error = console.erro
       checks: limiter(Math.max(1, config.runner.maxParallelChecks)),
       git: (fn) => withLockAsync(lockPath(root, 'ship'), fn, { signal: controller.signal }),
       log: (id, line) => log(`[${id}] ${line}`),
+      children: {},
     };
     ctx.gh = github(ctx);
     process.on('SIGINT', stop);
@@ -749,22 +854,28 @@ export async function main(argv, { root, log = console.log, error = console.erro
         await drive(ctx, opts.job);
       }
     } else {
-      const job = id && getJob(root, id);
-      if (!job) throw new Error(`No job ${id || '(none given)'} on the board.\n\n${USAGE}`);
-      if (job.stage !== 'needs-human') throw new Error(`Job ${id} is ${job.stage}; only a needs-human job can be ${opts.command === 'approve' ? 'approved' : 'reworked'}.`);
-      if (opts.command === 'approve') {
-        await ship(ctx, id, `approved by a human${job.note ? ` (it needed one because: ${job.note})` : ''}`);
-      } else {
-        const note = noteWords.join(' ').trim();
-        if (!note) throw new Error(`Say what to change: rework ${id} <note>`);
-        const n = job.round || 0;
-        const p = paths(root, job);
-        mkdirSync(p.round(n), { recursive: true });
-        writeFileSync(join(p.round(n), 'human.md'), `# Human feedback\n\n${note}\n`);
-        if (existsSync(p.decision)) renameSync(p.decision, join(p.round(n), 'decision.md'));
-        updateJob(root, id, { roundLimit: n + config.maxRounds, decision: null, note: null, stage: 'build' });
-        preflight(ctx);
-        await drive(ctx, id);
+      if (!id || !getJob(root, id)) throw new Error(`No job ${id || '(none given)'} on the board.\n\n${USAGE}`);
+      const note = noteWords.join(' ').trim();
+      if (opts.command === 'rework' && !note) throw new Error(`Say what to change: rework ${id} <note>`);
+      // Held for the whole command, so two approvals, or an approval and a rework, can't interleave.
+      if (!(await ownJob(ctx, id))) throw new Error(`Job ${id} is being run by another process; try again when it stops.`);
+      try {
+        const job = getJob(root, id);
+        if (job.stage !== 'needs-human') throw new Error(`Job ${id} is ${job.stage}; only a needs-human job can be ${opts.command === 'approve' ? 'approved' : 'reworked'}.`);
+        if (opts.command === 'approve') {
+          await ship(ctx, id, `approved by a human${job.note ? ` (it needed one because: ${job.note})` : ''}`);
+        } else {
+          preflight(ctx);
+          const n = job.round || 0;
+          const p = paths(root, job);
+          mkdirSync(p.round(n), { recursive: true });
+          writeFileSync(join(p.round(n), 'human.md'), `# Human feedback\n\n${note}\n`);
+          if (existsSync(p.decision)) renameSync(p.decision, join(p.round(n), 'decision.md'));
+          updateJob(root, id, { roundLimit: n + config.maxRounds, decision: null, note: null, stage: 'build' });
+          await drive(ctx, id, { locked: true });
+        }
+      } finally {
+        unlock(lockPath(root, `job-${id}`));
       }
     }
     return controller.signal.aborted ? 130 : 0;

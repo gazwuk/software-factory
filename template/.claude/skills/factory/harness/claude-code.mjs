@@ -36,12 +36,13 @@ export function preflight(options = {}) {
  * Runs `agent` (e.g. "builder", for .claude/agents/factory-builder.md) on `model`
  * with `prompt`, from the repo root. `tools` are the tools the agent may use without
  * asking; `options` is config.runner (`command` overrides the claude binary, as a
- * string or an argv array). Aborting `signal` kills the agent.
+ * string or an argv array). Aborting `signal` kills the agent. `onSpawn(pid)` gets the
+ * agent's process group, so a runner that crashes can have it stopped later.
  *
  * Resolves to { ok, sessionId, error, usage: { models, activeSeconds, transcript } },
  * where `models` has usage.mjs's per-model token shape.
  */
-export async function runAgent({ root, agent, model, prompt, tools = [], options = {}, signal }) {
+export async function runAgent({ root, agent, model, prompt, tools = [], options = {}, signal, onSpawn }) {
   const [command, ...pre] = [].concat(options.command || 'claude');
   const args = [
     ...pre, '-p', '--agent', `factory-${agent}`, '--model', model, '--output-format', 'json',
@@ -49,7 +50,7 @@ export async function runAgent({ root, agent, model, prompt, tools = [], options
   ];
   if (tools.length) args.push('--allowedTools', tools.join(','));
 
-  const { code, stdout, stderr, error } = await run(command, args, { cwd: root, input: prompt, signal });
+  const { code, stdout, stderr, error } = await run(command, args, { cwd: root, input: prompt, signal, onSpawn });
   const result = parseResult(stdout);
   const sessionId = result?.session_id || null;
   const transcript = sessionId ? join(homedir(), '.claude/projects', root.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`) : null;
@@ -93,14 +94,16 @@ function modelsOf(modelUsage = {}) {
 
 // The agent runs in its own process group, so aborting also stops the commands it
 // started (test runners, dev servers).
-function run(command, args, { cwd, input, signal }) {
+function run(command, args, { cwd, input, signal, onSpawn }) {
   return new Promise((resolvePromise) => {
     const child = spawn(command, args, { cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    if (child.pid) onSpawn?.(child.pid);
     let stdout = '';
     let stderr = '';
     let error = null;
     const kill = () => { try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ } };
     signal?.addEventListener('abort', kill, { once: true });
+    if (signal?.aborted) kill(); // aborted already: the listener won't fire
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
     child.on('error', (err) => { error = err; });

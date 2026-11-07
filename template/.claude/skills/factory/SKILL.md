@@ -57,8 +57,11 @@ feature — "Add CSV export" or "Setup CI for the docs site" start a **New job**
 The runner (`runner.mjs`) runs the loop below as a Node process, with no Claude Code
 session: it does the bookkeeping and starts each agent with `claude -p`. Hand off to
 it when `config.runner.headless` is `true`, or when
-`node <abs>/.claude/skills/factory/board.mjs runner` prints a pid (a runner is
-running). Otherwise run the loop yourself, as below.
+`node <abs>/.claude/skills/factory/board.mjs runner` prints anything. It prints a line
+per live runner process: `runner <pid>` for the scheduler (`run`), and
+`job <id> <pid>` for each job a runner process is driving (`run`, `run --job`,
+`rework`). Never run the loop yourself on a job it lists. Otherwise run the loop
+yourself, as below.
 
 Start the runner from the repo root with the Bash tool's `run_in_background`, and
 tell the user it's running, that the dashboard shows progress, and how to stop it
@@ -66,7 +69,7 @@ tell the user it's running, that the dashboard shows progress, and how to stop i
 
 | Command | Hand-off |
 |---|---|
-| `next`, `resume` | A runner is running → say it picks up queued and active jobs as slots free. Otherwise start `node <abs>/runner.mjs run`. |
+| `next`, `resume` | A `runner <pid>` line → say the scheduler picks up queued and active jobs as slots free. Otherwise start `node <abs>/runner.mjs run` (it leaves listed jobs to the process running them). |
 | `<feature>`, `issue <number>` | Do **New job** steps 1–2 yourself (and, for an issue, steps 1–3 of **Issue** and the claim), then start `node <abs>/runner.mjs run --job <id>`. |
 | `approve <job-id>` | Run `node <abs>/runner.mjs approve <job-id>` and report its last line. |
 | `rework <job-id> <note>` | Start `node <abs>/runner.mjs rework <job-id> '<note>'` (the note as one quoted argument). |
@@ -372,7 +375,10 @@ queue it. Don't start a job.
 
    Leave out lines that would be empty.
 5. Show the user the final task(s), then add them:
-   - **`"backlog"`:** append to the end of `factory/backlog.md`.
+   - **`"backlog"`:** write the tasks to a temp file, then run
+     `node <abs>/.claude/skills/factory/board.mjs backlog-add <tmp>`. It appends them
+     to `factory/backlog.md` under the lock the runner claims items with, so nothing
+     is lost if a runner is claiming at the same moment. Don't edit backlog.md yourself.
    - **`"github"`:** confirm with the user first, since this posts to GitHub. Create
      each with `gh issue create --title "<title>" --label "<githubLabel>" --body-file <tmp>`,
      where the body is the indented lines as markdown (`**Outcome:** …`). Create the
@@ -451,13 +457,14 @@ number if any, estimated cost from `factory/usage.json` if it has the job, note.
 `updatedAt`. Then one line on what's queued: the number of unchecked backlog items
 or open labelled issues. If the board is empty, say so and suggest
 `/factory <feature>`, `/factory backlog <feature>` or `/factory next`. Mention
-`npx github:gazwuk/software-factory dashboard` for the visual board. If a runner is
-running (`board.mjs runner` prints a pid), say so.
+`npx github:gazwuk/software-factory dashboard` for the visual board. If
+`board.mjs runner` lists runner processes, say which jobs they're running.
 
 ## Resume
 
-Find the active job (stage `spec`, `build`, `review` or `approval`). None → say so and
-run **Status**. Otherwise pick up from where the files say it got to:
+Find the active job (stage `spec`, `build`, `review` or `approval`). Leave out any job
+`board.mjs runner` lists: a runner process is on it. None → say so and run
+**Status**. Otherwise pick up from where the files say it got to:
 
 - `spec`: `spec.md` exists → step 4 of New job. Otherwise step 3.
 - `build`: worktree missing → recreate it from the existing branch

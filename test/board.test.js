@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import {
-  claimBacklogItem, claimJobId, getJob, parseBacklog, readBoard, slugify, tryLock, unlock, updateJob,
+  appendBacklog, claimBacklogItem, claimJobId, getJob, liveWorkers, lockPath, parseBacklog, readBoard, slugify,
+  tryLock, unlock, updateJob,
 } from '../template/.claude/skills/factory/board.mjs';
 
 const BOARD = new URL('../template/.claude/skills/factory/board.mjs', import.meta.url).href;
@@ -126,12 +127,51 @@ test('parseBacklog follows the Next rules', () => {
 test('claimBacklogItem ticks off the first item and leaves its details', () => {
   const root = factoryDir();
   writeFileSync(join(root, 'factory/backlog.md'), '# Backlog\n\n- [ ] Add CSV export\n  Details: all columns.\n- [ ] Next one\n');
-  const item = claimBacklogItem(root, (text) => claimJobId(root, slugify(text)));
+  const item = claimBacklogItem(root, ({ text }) => ({ id: claimJobId(root, slugify(text)) }));
   assert.deepEqual(item, { id: '001-add-csv-export', text: 'Add CSV export', request: 'Add CSV export\nDetails: all columns.' });
   assert.equal(readFileSync(join(root, 'factory/backlog.md'), 'utf8'),
     '# Backlog\n\n- [x] Add CSV export (job 001-add-csv-export)\n  Details: all columns.\n- [ ] Next one\n');
-  assert.equal(claimBacklogItem(root, () => '002-next-one').id, '002-next-one');
+  assert.equal(claimBacklogItem(root, () => ({ id: '002-next-one' })).id, '002-next-one');
   assert.equal(claimBacklogItem(root, () => assert.fail('nothing left to claim')), null);
+});
+
+test('claimBacklogItem ticks items a job already took before a crash, then claims the next', () => {
+  const root = factoryDir();
+  writeFileSync(join(root, 'factory/backlog.md'), '- [ ] Taken\n- [ ] Fresh\n');
+  const item = claimBacklogItem(root, ({ text }) => (text === 'Taken' ? { id: '001-taken', existing: true } : { id: '002-fresh' }));
+  assert.equal(item.id, '002-fresh');
+  assert.equal(readFileSync(join(root, 'factory/backlog.md'), 'utf8'), '- [x] Taken (job 001-taken)\n- [x] Fresh (job 002-fresh)\n');
+});
+
+test('appendBacklog adds tasks after the existing ones', () => {
+  const root = factoryDir();
+  writeFileSync(join(root, 'factory/backlog.md'), '# Backlog\n- [ ] One');
+  appendBacklog(root, '- [ ] Two\n  Details: d.\n\n');
+  assert.equal(readFileSync(join(root, 'factory/backlog.md'), 'utf8'), '# Backlog\n- [ ] One\n- [ ] Two\n  Details: d.\n');
+});
+
+test('liveWorkers lists the scheduler and per-job runners, not stale or temp locks', () => {
+  const root = factoryDir();
+  assert.ok(tryLock(lockPath(root, 'runner')));
+  assert.ok(tryLock(lockPath(root, 'job-001-x')));
+  const dead = spawnSync(process.execPath, ['-e', '']).pid;
+  mkdirSync(lockPath(root, 'job-002-y'));
+  writeFileSync(join(lockPath(root, 'job-002-y'), 'pid'), String(dead));
+  writeFileSync(`${lockPath(root, 'job-001-x')}.agents`, '');
+  assert.deepEqual(liveWorkers(root), [{ job: '001-x', pid: process.pid }, { runner: true, pid: process.pid }]);
+});
+
+// Each child keeps its lock for a second, so a winner is still alive while the rest try.
+test('stale-lock takeover by many processes at once leaves exactly one holder', async () => {
+  const root = factoryDir();
+  const dead = spawnSync(process.execPath, ['-e', '']).pid;
+  for (let round = 0; round < 3; round++) {
+    const lock = lockPath(root, `s${round}`);
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(join(lock, 'pid'), String(dead));
+    const results = await Promise.all([...Array(6)].map(() => inChild(root, `console.log(b.tryLock(${JSON.stringify(lock)})); setTimeout(() => {}, 1000)`)));
+    assert.equal(results.filter((r) => r === 'true').length, 1, results.join(','));
+  }
 });
 
 test('slugify keeps at most five words', () => {

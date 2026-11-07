@@ -5,7 +5,8 @@
 //
 //   node board.mjs update <job-id> '<json>'   merge fields into one job (adds it if new)
 //   node board.mjs claim-id <slug>            create factory/jobs/<nnn>-<slug>/ and print the id
-//   node board.mjs runner                     print the live runner's pid, or nothing
+//   node board.mjs backlog-add <file>         append a file's tasks to backlog.md
+//   node board.mjs runner                     print each live runner process, or nothing
 import { execFileSync } from 'node:child_process';
 import {
   existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync,
@@ -46,13 +47,9 @@ export function lockHolder(path) {
   return Number.isInteger(pid) && pid > 0 && alive(pid) ? pid : null;
 }
 
-/**
- * Takes a lock once, taking over one whose holder has exited. Returns true if this
- * process now holds it. The lock folder is built with its pid file inside and renamed
- * into place, so no process ever sees a lock without its holder.
- */
-export function tryLock(path) {
-  mkdirSync(dirname(path), { recursive: true });
+// Creates a lock folder already holding this pid, in one rename, so no process ever
+// sees a lock without its holder. False if the lock exists.
+function create(path) {
   const tmp = unique(path);
   mkdirSync(tmp);
   writeFileSync(join(tmp, 'pid'), String(process.pid));
@@ -61,22 +58,37 @@ export function tryLock(path) {
     return true;
   } catch (err) {
     rmSync(tmp, { recursive: true, force: true });
-    if (!['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(err.code)) throw err;
+    if (['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(err.code)) return false;
+    throw err;
   }
+}
+
+/**
+ * Takes a lock once, taking over one whose holder has exited. Returns true if this
+ * process now holds it.
+ *
+ * A stale lock is cleared only by the process that creates its reclaim marker
+ * (`<lock>.reclaim-<dead pid>`), and only if the lock still names that dead pid, so a
+ * live holder is never displaced. If a reclaimer dies mid-takeover its marker stays,
+ * and the lock needs removing by hand (withLock's timeout names it).
+ */
+export function tryLock(path) {
+  mkdirSync(dirname(path), { recursive: true });
+  if (create(path)) return true;
   let stale;
   try { stale = readPid(path); } catch { return false; } // released meanwhile; try again
   if (Number.isInteger(stale) && stale > 0 && alive(stale)) return false;
-  // Move the stale lock aside first, so two processes can't both take it over.
-  const moved = unique(path);
-  try { renameSync(path, moved); } catch { return false; }
-  let same = false;
-  try { same = readPid(moved) === stale || Number.isNaN(stale); } catch { /* unreadable: treat as moved by mistake */ }
-  if (!same) {
-    try { renameSync(moved, path); } catch { /* a newer lock is there already */ }
-    return false;
+  const marker = `${path}.reclaim-${stale}`;
+  if (!create(marker)) return false;
+  try {
+    let now = null;
+    try { now = readPid(path); } catch { /* already cleared */ }
+    if (!Object.is(now, stale)) return false;
+    unlock(path);
+  } finally {
+    unlock(marker);
   }
-  rmSync(moved, { recursive: true, force: true });
-  return tryLock(path);
+  return create(path);
 }
 
 /** Releases a lock: moved aside first, because an empty folder could be renamed over mid-delete. */
@@ -102,7 +114,12 @@ export async function withLockAsync(path, fn, { signal } = {}) {
     signal?.throwIfAborted();
     await new Promise((r) => setTimeout(r, 250));
   }
-  try { return await fn(); } finally { unlock(path); }
+  try {
+    signal?.throwIfAborted(); // stopped while waiting: don't run fn
+    return await fn();
+  } finally {
+    unlock(path);
+  }
 }
 
 // ---------- board ----------
@@ -180,22 +197,52 @@ export function parseBacklog(text) {
 }
 
 /**
- * Claims the first unchecked backlog item: makes its job id with idFor(text), ticks it
- * off as `- [x] <text> (job <id>)`, and returns { id, text, request }. Null when empty.
+ * Claims the first unchecked backlog item and ticks it off as `- [x] <text> (job <id>)`.
+ * claim(item) creates the job and returns { id }, or returns { id, existing: true } for
+ * an item a job already took before a crash stopped the tick; that item is ticked and
+ * the next one claimed. Returns { id, text, request } for the new job, or null.
  */
-export function claimBacklogItem(root, idFor) {
+export function claimBacklogItem(root, claim) {
   const path = join(root, 'factory/backlog.md');
   return withLock(lockPath(root, 'backlog'), () => {
     if (!existsSync(path)) return null;
-    const text = readFileSync(path, 'utf8');
-    const [item] = parseBacklog(text);
-    if (!item) return null;
-    const id = idFor(item.text);
-    const lines = text.split('\n');
-    lines[item.line] = `- [x] ${item.text} (job ${id})`;
+    const lines = readFileSync(path, 'utf8').split('\n');
+    let claimed = null;
+    for (const item of parseBacklog(lines.join('\n'))) {
+      const { id, existing } = claim(item);
+      lines[item.line] = `- [x] ${item.text} (job ${id})`;
+      if (!existing) {
+        claimed = { id, text: item.text, request: item.request };
+        break;
+      }
+    }
     writeFileSync(path, lines.join('\n'));
-    return { id, text: item.text, request: item.request };
+    return claimed;
   });
+}
+
+/** Appends markdown to backlog.md under the lock that claims use. */
+export function appendBacklog(root, text) {
+  const path = join(root, 'factory/backlog.md');
+  withLock(lockPath(root, 'backlog'), () => {
+    const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
+    const sep = !current || current.endsWith('\n') ? '' : '\n';
+    writeFileSync(path, `${current}${sep}${text.replace(/\s*$/, '\n')}`);
+  });
+}
+
+/** Live runner processes: the scheduler (`run`) and any process driving one job. */
+export function liveWorkers(root) {
+  const dir = join(root, 'factory/.locks');
+  const out = [];
+  for (const name of existsSync(dir) ? readdirSync(dir) : []) {
+    const m = /^(runner|job-([a-z0-9-]+))$/.exec(name); // not temp names, markers or agent lists
+    if (!m) continue;
+    let pid = null;
+    try { pid = lockHolder(join(dir, name)); } catch { /* just released */ }
+    if (pid) out.push(m[2] ? { job: m[2], pid } : { runner: true, pid });
+  }
+  return out;
 }
 
 // ---------- entry point ----------
@@ -207,13 +254,11 @@ function main() {
   }).trim();
   if (command === 'update' && args.length === 2) updateJob(root, args[0], JSON.parse(args[1]));
   else if (command === 'claim-id' && args.length === 1) console.log(claimJobId(root, slugify(args[0])));
+  else if (command === 'backlog-add' && args.length === 1) appendBacklog(root, readFileSync(args[0], 'utf8'));
   else if (command === 'runner') {
-    const path = lockPath(root, 'runner');
-    let pid = null;
-    try { pid = existsSync(path) ? lockHolder(path) : null; } catch { /* stale */ }
-    if (pid) console.log(pid);
+    for (const w of liveWorkers(root)) console.log(w.runner ? `runner ${w.pid}` : `job ${w.job} ${w.pid}`);
   } else {
-    console.error("Usage: node board.mjs update <job-id> '<json>' | claim-id <slug> | runner");
+    console.error("Usage: node board.mjs update <job-id> '<json>' | claim-id <slug> | backlog-add <file> | runner");
     process.exitCode = 2;
   }
 }

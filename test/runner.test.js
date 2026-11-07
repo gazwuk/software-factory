@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { agentTools, nextAction, paths, prBody, prompts } from '../template/.claude/skills/factory/runner.mjs';
+import { agentTools, nextAction, paths, prBody, prompts, reconcile } from '../template/.claude/skills/factory/runner.mjs';
+import { lockPath, tryLock, unlock } from '../template/.claude/skills/factory/board.mjs';
 import { preflight } from '../template/.claude/skills/factory/harness/claude-code.mjs';
 import { jobOf, roundOf } from '../template/.claude/skills/factory/usage.mjs';
 
@@ -281,4 +282,107 @@ test('run refuses an unconfigured repo and a second runner', async () => {
   r = await runCli(dir, ['run']);
   assert.equal(r.code, 1);
   assert.match(r.out, new RegExp(`already running in this repo \\(pid ${process.pid}\\)`));
+});
+
+// ---------- recovery (PR #8 review) ----------
+
+const setBoard = (dir, edit) => {
+  const b = board(dir);
+  edit(b.jobs);
+  writeFileSync(join(dir, 'factory/board.json'), JSON.stringify(b, null, 2));
+};
+
+test('reconcile restores verdicts written to files but not to the board', () => {
+  const root = mkdtempSync(join(tmpdir(), 'factory-rec-'));
+  temps.push(root);
+  execFileSync('mkdir', ['-p', join(root, 'factory')]);
+  const j = job({ stage: 'review', round: 1, rounds: [{ code: 'pending', ui: 'pending' }] });
+  writeFileSync(join(root, 'factory/board.json'), JSON.stringify({ version: 1, jobs: [j] }));
+  const after = reconcile({ root }, j, facts({ round: roundJson(1), reviews: { code: 'PASS' } }));
+  assert.deepEqual(after.rounds, [{ code: 'PASS', ui: 'SKIPPED' }]);
+  assert.equal(reconcile({ root }, after, facts({ round: roundJson(1), reviews: { code: 'PASS' } })), after, 'no write when in step');
+});
+
+test('run --job rejects a missing job id instead of running the whole queue', async () => {
+  const dir = factoryRepo({ items: ['Add eta'] });
+  for (const args of [['run', '--job'], ['run', '--job='], ['run', '--job', '--parallel', '2']]) {
+    const r = await runCli(dir, args);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.out, /--job takes a job id/);
+  }
+  assert.ok(!existsSync(join(dir, 'fake.log')), 'nothing ran');
+});
+
+test('a ship that stopped after merging carries on, and a failed record commit can be retried', async () => {
+  const dir = factoryRepo({ items: ['Add theta'], config: { maxRounds: 1 } });
+  await runCli(dir, ['run'], { FAKE_CHANGES_ONCE: join(dir, 'changed') });
+  const id = '001-add-theta';
+  // As if a ship merged and deleted the branch, then stopped.
+  execFileSync('git', ['merge', '-q', '--no-ff', `factory/${id}`, '-m', 'merged'], { cwd: dir, env: ENV });
+  execFileSync('git', ['worktree', 'remove', `.factory-worktrees/${id}`], { cwd: dir });
+  execFileSync('git', ['branch', '-d', `factory/${id}`], { cwd: dir });
+  setBoard(dir, ([j]) => { j.runner = { ...j.runner, merged: 'abc1234' }; });
+
+  // A pre-commit hook that rejects the record commit.
+  const hook = join(dir, '.git/hooks/pre-commit');
+  writeFileSync(hook, '#!/bin/sh\necho "no thanks" >&2\nexit 1\n', { mode: 0o755 });
+  let r = await runCli(dir, ['approve', id]);
+  let [j] = board(dir).jobs;
+  assert.equal(j.stage, 'needs-human', r.out);
+  assert.match(j.note, /^merged as abc1234, but committing factory\/jobs\/001-add-theta failed: no thanks/);
+
+  rmSync(hook);
+  r = await runCli(dir, ['approve', id]);
+  assert.equal(r.code, 0, r.out);
+  [j] = board(dir).jobs;
+  assert.equal(j.stage, 'merged');
+  assert.match(gitOut(dir, 'log', '-1', '--format=%s'), /factory: record job 001-add-theta/);
+  assert.equal(gitOut(dir, 'log', '--format=%s').split('\n').filter((l) => l === 'merged').length, 1, 'not merged twice');
+});
+
+test('a backlog item claimed just before a crash is ticked for its job, not started twice', async () => {
+  const dir = factoryRepo({ items: ['Add iota', 'Add kappa'] });
+  // As if the runner created the job for "Add iota" and stopped before ticking it.
+  execFileSync('mkdir', ['-p', join(dir, 'factory/jobs/001-add-iota')]);
+  writeFileSync(join(dir, 'factory/jobs/001-add-iota/request.md'), 'Add iota\nDetails: for Add iota.\n');
+  writeFileSync(join(dir, 'factory/board.json'), JSON.stringify({ version: 1, jobs: [{
+    id: '001-add-iota', title: 'Add iota', stage: 'spec', round: 0, roundLimit: 2,
+    reviewers: ['security', 'ux', 'ui', 'code'], rounds: [], decision: null, issue: null, note: null, pendingBacklogItem: 'Add iota',
+  }] }));
+  const r = await runCli(dir, ['run']);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(board(dir).jobs.map((j) => [j.id, j.stage, j.pendingBacklogItem]),
+    [['001-add-iota', 'merged', undefined], ['002-add-kappa', 'merged', undefined]]);
+  assert.match(readFileSync(join(dir, 'factory/backlog.md'), 'utf8'), /- \[x\] Add iota \(job 001-add-iota\)[\s\S]*- \[x\] Add kappa \(job 002-add-kappa\)/);
+});
+
+test('agents a crashed runner left running are stopped before the job is picked up', async () => {
+  const dir = factoryRepo({ items: ['Add lambda'] });
+  const marker = join(dir, 'hung');
+  const first = start(dir, ['run'], { FAKE_BUILDER_HANG: marker });
+  await until(() => existsSync(marker));
+  first.child.kill('SIGKILL'); // a crash: the hung builder survives
+  await first.exit;
+  const orphan = Number(readFileSync(`${lockPath(dir, 'job-001-add-lambda')}.agents`, 'utf8'));
+  assert.doesNotThrow(() => process.kill(orphan, 0), 'the builder outlived the runner');
+
+  const { code, out } = await runCli(dir, ['run'], { FAKE_BUILDER_HANG: marker });
+  assert.equal(code, 0, out);
+  assert.match(out, new RegExp(`stopping agent process ${orphan}`));
+  assert.throws(() => process.kill(orphan, 0));
+  assert.equal(board(dir).jobs[0].stage, 'merged');
+});
+
+test('approve and rework refuse a job another process holds', async () => {
+  const dir = factoryRepo({ items: [] });
+  writeFileSync(join(dir, 'factory/board.json'), JSON.stringify({ version: 1, jobs: [{ id: '001-x', stage: 'needs-human', title: 'X' }] }));
+  const lock = lockPath(dir, 'job-001-x');
+  assert.ok(tryLock(lock));
+  try {
+    const r = await runCli(dir, ['approve', '001-x']);
+    assert.equal(r.code, 1);
+    assert.match(r.out, /being run by another process/);
+  } finally {
+    unlock(lock);
+  }
 });
