@@ -7,7 +7,7 @@ import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { agentTools, nextAction, paths, prBody, prompts, reconcile } from '../template/.claude/skills/factory/runner.mjs';
 import { lockPath, tryLock, unlock } from '../template/.claude/skills/factory/board.mjs';
-import { preflight } from '../template/.claude/skills/factory/harness/claude-code.mjs';
+import { describe, preflight } from '../template/.claude/skills/factory/harness/claude-code.mjs';
 import { jobOf, roundOf } from '../template/.claude/skills/factory/usage.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/cli.js', import.meta.url));
@@ -113,8 +113,15 @@ test('preflight checks the claude command supports the flags the runner passes',
   temps.push(dir);
   writeFileSync(join(dir, 'old.mjs'), "console.log('  --agents <json>\\n  --output-format <format>\\n  --permission-mode <mode> (choices: default, plan)')");
   assert.equal(preflight({ command: [process.execPath, join(dir, 'old.mjs')] }),
-    `${process.execPath} ${join(dir, 'old.mjs')} doesn't support --agent, --allowedTools, dontAsk. Update Claude Code (\`claude update\`).`);
+    `${process.execPath} ${join(dir, 'old.mjs')} doesn't support --agent, stream-json, --verbose, --allowedTools, dontAsk. Update Claude Code (\`claude update\`).`);
   assert.match(preflight({ command: '/nonexistent/claude' }), /--help` failed \(ENOENT\)/);
+});
+
+test('describe turns a tool call into one short line', () => {
+  assert.equal(describe('Bash', { command: 'npm test -- --watch=false\necho done', description: 'Run tests' }), '$ npm test -- --watch=false');
+  assert.equal(describe('Edit', { file_path: '/repo/src/app.js', old_string: 'a' }), 'Edit /repo/src/app.js');
+  assert.equal(describe('Grep', { pattern: 'TODO', path: 'src' }), 'Grep TODO');
+  assert.equal(describe('TodoWrite', { todos: [] }), 'TodoWrite');
 });
 
 // ---------- end to end, with a fake claude ----------
@@ -207,6 +214,12 @@ test('run --parallel 2 takes two backlog items to merge, writing the usual job f
   assert.deepEqual(builder.args.slice(builder.args.indexOf('--permission-mode'), builder.args.indexOf('--permission-mode') + 4),
     ['--permission-mode', 'dontAsk', '--allowedTools', 'Read,Grep,Glob,Bash,Write,Edit']);
   assert.ok(!existsSync(join(dir, 'factory/.locks/runner')), 'locks are released');
+
+  // Progress shows as it happens, with paths relative to the repo.
+  assert.match(out, /\[001-add-alpha\] round 1: running checks \(test\)/);
+  assert.match(out, /\[001-add-alpha\] builder: Read factory\/jobs\/001-add-alpha\/spec\.md/);
+  assert.match(out, /\[001-add-alpha\] builder finished in \d+s: done/);
+  assert.deepEqual(readdirSync(join(dir, 'factory/activity')), [], 'nothing is left showing as running');
 });
 
 test('a killed runner resumes jobs from their files', async () => {
@@ -214,6 +227,11 @@ test('a killed runner resumes jobs from their files', async () => {
   const marker = join(dir, 'hung');
   const first = start(dir, ['run'], { FAKE_BUILDER_HANG: marker });
   await until(() => existsSync(marker));
+  const running = join(dir, 'factory/activity/001-add-gamma.json');
+  await until(() => existsSync(running));
+  const now = JSON.parse(readFileSync(running, 'utf8'));
+  assert.equal(now.pid, first.child.pid);
+  assert.deepEqual(now.steps.map((s) => [s.name, s.model]), [['builder', 'opus']]);
   first.child.kill('SIGTERM');
   const stopped = await first.exit;
   assert.equal(stopped.code, 130, stopped.out);

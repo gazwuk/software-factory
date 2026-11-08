@@ -88,6 +88,7 @@ factory/
   board.json                         # durable state, drives dashboard   [user, gitignored]
   usage.json                         # cost summary, rebuilt by usage.mjs [user, gitignored]
   .locks/                            # lock folders (pid inside, renamed into place): board, ids, backlog, ship, runner, job-<id> [gitignored]
+  activity/<id>.json                 # what the runner is running for a job now [gitignored]
   dashboard.html                                                         [package]
   .manifest.json                                                         [package]
   jobs/<job-id>/                     # one folder per job                [user]
@@ -288,16 +289,23 @@ always matches the repo's skill and agents.
   resumes from the files. The board keeps only what files can't show: check-fix
   attempts, in `job.runner.checkFixes`.
 - **Agents** run through a harness module, `harness/<config.runner.harness>.mjs`. It
-  exports `runAgent({ root, agent, model, prompt, tools, options, signal })` →
-  `{ ok, sessionId, error, usage }` and optionally `preflight(options)`. `claude-code`
-  runs `claude -p --agent factory-<name> --model <m> --output-format json
-  --permission-mode <mode> --allowedTools <the agent's tools:>` from the repo root,
+  exports `runAgent({ root, agent, model, prompt, tools, options, signal, onActivity })` →
+  `{ ok, sessionId, error, reply, usage }` and optionally `preflight(options)`.
+  `onActivity(text)` gets one line per tool call as it happens. `claude-code`
+  runs `claude -p --agent factory-<name> --model <m> --output-format stream-json
+  --verbose --permission-mode <mode> --allowedTools <the agent's tools:>` from the repo root,
   with the prompt on stdin. Prompts are the ones SKILL.md gives. A fresh agent for
   every step, never resumed. An agent that doesn't write its file runs once more, then
   the job goes to needs-human.
 - **Checks** run as `node round.mjs` child processes with no timeout, at most
   `maxParallelChecks` at once. Agents and checks run in their own process groups, so
   stopping the runner stops them too.
+- **Progress:** the runner logs each agent's tool calls, a `still working` line after
+  60s with none, and `<agent> finished in <time>: <reply>`. While a job's agents or
+  checks run, the process driving it rewrites `factory/activity/<id>.json` every 15s
+  (`{ pid, updatedAt, steps: [{ name, model, startedAt, last, lastAt }] }`) and removes
+  it when it stops driving the job. The dashboard shows the steps on the job's card
+  and ignores a file more than 60s old (left by a runner that crashed).
 - **Cost:** no SubagentStop hook fires for `claude -p` agents. The runner calls
   `usage.mjs` `recordRun`, which reads the session transcript when it's found, and
   otherwise the JSON result's `modelUsage`.

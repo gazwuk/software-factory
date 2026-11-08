@@ -104,6 +104,11 @@ at a time.
 | `approve <id>` | Ship a job that needs a human |
 | `rework <id> <note>` | Send a job that needs a human back to the builder |
 
+The runner prints each agent's tool calls as they happen (`[001-x] builder: Edit
+src/app.js`). A step that goes a minute without one gets a `still working` line, and
+each agent ends with `finished in 6m: <its reply>`. On the dashboard, a job's card
+shows what's running for it and for how long.
+
 To stop the runner, press Ctrl+C. Run it again and it carries on where each job got to.
 Set `runner.headless` to `true` in config and `/factory next`, `/factory <feature>`,
 `/factory issue`, `resume`, `approve` and `rework` hand their work to the runner in
@@ -188,6 +193,7 @@ factory/
   board.json                     live state (gitignored)
   usage.json                     cost summary for the dashboard (gitignored)
   .locks/                        locks for the runner and board writes (gitignored)
+  activity/                      what the headless runner is running now, for the dashboard (gitignored)
   dashboard.html
   jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,review-*.md}, decision.md, usage/
 ```
@@ -313,8 +319,8 @@ start a new session afterwards so `/factory` loads the new skill.
 
 **Upgrading to 0.3** (the headless runner): `update` adds `runner.mjs`, `board.mjs`
 and `harness/`, adds a `runner` section to config (`headless: false`, so `/factory`
-keeps working as before), and gitignores `factory/.locks/`. Jobs and the board are
-unchanged. If you'd edited `SKILL.md`, merge `SKILL.md.new` before using `run`: the
+keeps working as before), and gitignores `factory/.locks/` and `factory/activity/`.
+Jobs and the board are unchanged. If you'd edited `SKILL.md`, merge `SKILL.md.new` before using `run`: the
 new skill writes the board through `board.mjs`, so a session and a runner can work
 side by side. `run` needs a Claude Code recent enough for `claude -p --agent` with
 `--permission-mode dontAsk`; it checks before it starts.

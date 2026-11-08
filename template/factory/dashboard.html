@@ -147,6 +147,17 @@
   .chip.waiting::before { animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .25; } }
 
+  .activity { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+  .activity-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .activity-row::before {
+    content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; align-self: center;
+    background: var(--accent); animation: pulse 1.2s ease-in-out infinite;
+  }
+  .activity-name { flex: none; font-weight: 600; color: var(--text); }
+  .activity-last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity-time { flex: none; color: var(--faint); }
+  @media (prefers-reduced-motion: reduce) { .chip.waiting::before, .activity-row::before { animation: none; } }
+
   .empty {
     grid-column: 1 / -1; text-align: center; color: var(--muted);
     padding: 64px 16px; border: 1px dashed var(--border); border-radius: 12px;
@@ -285,6 +296,9 @@
   let usageText = null;
   let usage = { jobs: {} }; // usage.json, written by the cost-tracking hook
   let openJob = null;      // { id, updatedAt, docs, selected, opener } or { stats: true, … }
+  let activity = {};       // job id → factory/activity/<id>.json, written by the headless runner
+  let activityText = '';
+  const ACTIVITY_STALE_MS = 60000; // the runner rewrites it every 15s while a step runs
   const COST_NOTE = 'Estimated at API list prices from each agent\'s transcript. On a Claude subscription you aren\'t billed per token, but the numbers still compare agents, models and reviewers.';
 
   // ---------- helpers ----------
@@ -330,6 +344,20 @@
   }
 
   const jobUsage = (id) => (usage.jobs || {})[id] || null;
+
+  // How long a running step has been going: "40s", "6m", "1h 5m".
+  function since(iso) {
+    const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+    if (!Number.isFinite(s)) return '';
+    return s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`;
+  }
+
+  // The steps the headless runner is running for a job; none once its file goes stale.
+  function activityOf(job) {
+    const a = ACTIVE.includes(job.stage) ? activity[job.id] : null;
+    if (!a || !Array.isArray(a.steps) || Date.now() - (Date.parse(a.updatedAt) || 0) > ACTIVITY_STALE_MS) return [];
+    return a.steps;
+  }
 
   function verdictClass(v) {
     return v === 'PASS' ? 'pass' : v === 'CHANGES' ? 'changes' : v === 'SKIPPED' ? 'skipped' : '';
@@ -476,6 +504,7 @@
         }));
     });
 
+    const running = activityOf(job);
     const roundText = job.round ? `Round ${job.round}/${job.roundLimit || job.round}` : '';
     return h('button', {
       class: `card ${cls}`, 'data-id': job.id, type: 'button',
@@ -484,6 +513,11 @@
       h('div', { class: 'card-id mono' }, job.id, job.issue ? h('span', { class: 'issue' }, `#${job.issue}`) : null),
       h('div', { class: 'card-title' }, job.title || job.feature || job.id),
       rounds.length ? h('div', { class: 'rounds' }, roundRows) : null,
+      running.length ? h('div', { class: 'activity', 'aria-label': 'Running now' }, running.map((s) =>
+        h('div', { class: 'activity-row', title: [s.name, s.model, s.last].filter(Boolean).join(' · ') },
+          h('span', { class: 'activity-name' }, s.name),
+          h('span', { class: 'activity-last mono' }, s.last || (s.model ? `starting (${s.model})` : 'running')),
+          h('span', { class: 'activity-time' }, since(s.startedAt))))) : null,
       h('div', { class: 'card-meta' },
         h('span', null, job.stage === 'pr-open' ? 'PR open' : job.stage === 'failed' ? 'Failed' : roundText),
         h('span', null, [jobUsage(job.id) ? usd(jobUsage(job.id).costUsd) : null, ago(job.updatedAt)].filter(Boolean).join(' · '))),
@@ -548,7 +582,28 @@
     } catch { return false; } // missing, or mid-write: try again next tick
   }
 
+  // Only the headless runner writes activity files, so a job run in a session has none.
+  async function pollActivity() {
+    const ids = (Array.isArray(board.jobs) ? board.jobs : []).filter((j) => ACTIVE.includes(j.stage)).map((j) => j.id);
+    const next = {};
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const res = await fetch(`activity/${encodeURIComponent(id)}.json`, { cache: 'no-store' });
+        if (res.ok) {
+          const value = JSON.parse(await res.text());
+          if (value && Date.now() - (Date.parse(value.updatedAt) || 0) <= ACTIVITY_STALE_MS) next[id] = value;
+        }
+      } catch { /* mid-write: try again next tick */ }
+    }));
+    const text = JSON.stringify(next);
+    if (text === activityText) return false;
+    activity = next;
+    activityText = text;
+    return true;
+  }
+
   async function poll() {
+    if (await pollActivity()) render();
     if (await pollUsage()) {
       render();
       if (openJob) refreshCost();

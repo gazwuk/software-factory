@@ -10,7 +10,7 @@ export const INSTALL_CMD = 'npx github:gazwuk/software-factory';
 
 export const MANIFEST_PATH = 'factory/.manifest.json';
 export const CONFIG_PATH = 'factory/config.json';
-export const GITIGNORE_ENTRIES = ['factory/board.json', 'factory/usage.json', 'factory/.locks/', '.factory-worktrees/'];
+export const GITIGNORE_ENTRIES = ['factory/board.json', 'factory/usage.json', 'factory/.locks/', 'factory/activity/', '.factory-worktrees/'];
 export const SETTINGS_PATH = '.claude/settings.json';
 export const USAGE_HOOK_COMMAND = 'node "$CLAUDE_PROJECT_DIR/.claude/skills/factory/usage.mjs"';
 
