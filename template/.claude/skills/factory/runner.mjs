@@ -675,7 +675,7 @@ async function drive(ctx, id, { locked = false } = {}) {
   } catch (err) {
     if (!ctx.signal.aborted) throw err;
   } finally {
-    rmSync(activityFile(ctx.root, id), { force: true });
+    try { rmSync(activityFile(ctx.root, id), { force: true }); } catch { /* progress never fails a job */ }
     if (!locked) unlock(lock);
   }
 }
