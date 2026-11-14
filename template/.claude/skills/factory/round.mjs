@@ -14,6 +14,11 @@
 // runs one check the way a round would, on the worktree as it is (uncommitted work
 // included), and prints its result as JSON. Setup and the builder use it.
 //
+//   node .claude/skills/factory/round.mjs diff <worktree> <from> <to> [<path>...]
+//
+// prints the diff from..to with each line's number in its file beside it, so
+// reviewers cite real lines.
+//
 //   node .claude/skills/factory/round.mjs grep <worktree> <from> <to> '<regex>'
 //
 // prints each line the diff from..to adds that matches a JavaScript regex, as
@@ -177,6 +182,40 @@ export function parseChangedLines(patch) {
     out.get(file).add(line);
   }
   return out;
+}
+
+/**
+ * A unified diff with each context and added line's number in the file's new version
+ * in the margin (removed lines have none), under one `=== <file>` line per file.
+ */
+export function numberDiff(patch) {
+  const out = [];
+  let n = null;
+  let prev = '';
+  const pad = (x) => String(x).padStart(5);
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      n = null;
+    } else if (n === null && line.startsWith('+++ ') && prev.startsWith('--- ')) {
+      const to = line.slice(4);
+      out.push('', to === '/dev/null' ? `=== ${prev.slice(4).replace(/^a\//, '')} (deleted)` : `=== ${to.replace(/^b\//, '')}`);
+    } else if (line.startsWith('@@ ')) {
+      n = Number(/^@@ -\S+ \+(\d+)/.exec(line)?.[1] ?? 0);
+      out.push(`      ${line}`);
+    } else if (n !== null && (line.startsWith(' ') || line.startsWith('+'))) {
+      out.push(`${pad(n++)} ${line}`);
+    } else if ((n !== null && (line.startsWith('-') || line.startsWith('\\'))) || line.startsWith('Binary files')) {
+      out.push(`      ${line}`);
+    }
+    prev = line;
+  }
+  return out.join('\n').replace(/^\n/, '');
+}
+
+/** numberDiff of from..to in a worktree, optionally for some paths only. */
+export function numberedDiff(worktree, from, to, paths = []) {
+  const args = ['diff', '-M', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', from, to];
+  return numberDiff(git(paths.length ? [...args, '--', ...paths] : args, worktree));
 }
 
 const unifiedZero = (from, to) => ['diff', '-U0', '-M', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', from, ...(to ? [to] : [])];
@@ -385,13 +424,15 @@ function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, rev
     out.push(`| ${name} | ${r.run ? 'yes' : 'skipped'} | ${r.model || '—'} | ${r.reason} |`);
   }
   out.push('', '## What to review', '');
-  out.push(`The whole change: \`git -C ${worktree} diff ${mergeBase} ${sha}\``, '');
-  out.push(`To search only the lines a diff adds, printed as \`file:line: text\` with each line's number in its file: \`node ${join(HERE, 'round.mjs')} grep ${worktree} <since> ${sha} '<regex>'\` (a JavaScript regex; \`<since>\` from your line below). Cite those numbers, not \`grep -n\` positions in diff output.`, '');
+  const script = join(HERE, 'round.mjs');
+  out.push(`Each diff below prints every line's number in its file in the margin. Cite those numbers; don't count lines in diff output. Add file paths at the end to see only those files.`, '');
+  out.push(`The whole change: \`node ${script} diff ${worktree} ${mergeBase} ${sha}\``, '');
   for (const [name, r] of Object.entries(reviewers)) {
     if (!r.run) continue;
     if (r.since === mergeBase) out.push(`- **${name}:** first review of this change — review all of it.`);
-    else out.push(`- **${name}:** since your last review (\`${r.lastReview}\`): \`git -C ${worktree} diff ${r.since} ${sha}\``);
+    else out.push(`- **${name}:** since your last review (\`${r.lastReview}\`): \`node ${script} diff ${worktree} ${r.since} ${sha}\``);
   }
+  out.push('', `To search only the lines a diff adds: \`node ${script} grep ${worktree} <since> ${sha} '<regex>'\`, with a JavaScript regex. \`<since>\` is \`${mergeBase}\` for a first review, else the commit in your line above. It prints \`file:line: text\`.`);
   out.push('', '## Changed files', '', '```', stat || '(none)', '```', '');
   return out.join('\n');
 }
@@ -489,6 +530,20 @@ function main() {
       process.exit(2);
     }
     run = (root) => tryCheck(root, name, resolve(worktree), base);
+  } else if (args[0] === 'diff') {
+    const [, worktree, from, to, ...only] = args;
+    if (!worktree || !from || !to) {
+      console.error('Usage: node round.mjs diff <worktree> <from> <to> [<path>...]');
+      process.exit(2);
+    }
+    try {
+      const text = numberedDiff(resolve(worktree), from, to, only);
+      if (text) console.log(text);
+    } catch (err) {
+      console.error(`round.mjs: ${(err.stderr || err.message || String(err)).toString().trim()}`);
+      process.exit(1);
+    }
+    return;
   } else if (args[0] === 'grep') {
     const [, worktree, from, to, pattern] = args;
     if (!worktree || !from || !to || !pattern) {

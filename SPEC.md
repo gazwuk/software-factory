@@ -280,9 +280,11 @@ Every agent replies to the orchestrator with one line; the detail is in its file
    failures count as a failed check named `ui-probe`: the builder fixes them and no
    reviewer runs this round. (`prepareRound(..., { probeBlocks: false })`, used only
    by the reviewer benchmark, reports them to the reviewers instead.)
-6. Writes `round.md` (results, selection table with reasons, a `git diff <since> <head>`
-   per selected reviewer, diff stat, the probe's result) and `round.json`, and prints a
-   one-line JSON summary.
+6. Writes `round.md` (results, selection table with reasons, a diff command from
+   `<since>` to `<head>` per selected reviewer, diff stat, the probe's result) and
+   `round.json`, and prints a one-line JSON summary. The diff commands are
+   `round.mjs diff <worktree> <from> <to> [<path>...]`, which prints the diff with
+   each line's number in its file in the margin, so reviewers cite real lines.
 
 **Static UI gates:** checks in `config.checks` that lint only what the change
 touches, so a rule can be switched on without fixing the whole repo first.

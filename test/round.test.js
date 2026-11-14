@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { addedLines, globMatch, grepAdded, parseChangedLines, prepareRound, selectReviewers, splitProblems, tryCheck } from '../template/.claude/skills/factory/round.mjs';
+import { addedLines, globMatch, grepAdded, numberDiff, numberedDiff, parseChangedLines, prepareRound, selectReviewers, splitProblems, tryCheck } from '../template/.claude/skills/factory/round.mjs';
 
 const temps = [];
 after(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -177,7 +177,7 @@ test('prepareRound gates on checks and dirty worktrees, then selects reviewers',
   const state = JSON.parse(readFileSync(join(jobDir, 'round-2/round.json'), 'utf8'));
   assert.equal(state.reviewers.code.since, r1.sha);
   assert.equal(state.reviewers.ui.since, state.mergeBase);
-  assert.match(readFileSync(join(jobDir, 'round-2/round.md'), 'utf8'), new RegExp(`diff ${r1.sha} ${r2.sha}`));
+  assert.match(readFileSync(join(jobDir, 'round-2/round.md'), 'utf8'), new RegExp(`round\\.mjs diff \\S+ ${r1.sha} ${r2.sha}`));
 });
 
 test('the UI probe runs for probe reviewers, and its new failures block the round', () => {
@@ -365,4 +365,36 @@ test('grepAdded cites file lines, not positions in the diff, and round.md gives 
   assert.deepEqual(grepAdded(wt, mergeBase, 'HEAD', 'nothing-matches'), []);
   prepareRound(root, '001-x', 1);
   assert.match(readFileSync(join(jobDir, 'round-1/round.md'), 'utf8'), /round\.mjs grep \S+001-x <since> [0-9a-f]{40} '<regex>'/);
+});
+
+test('numberDiff prints each line\'s number in its file beside the diff', () => {
+  const patch = [
+    'diff --git a/a.css b/a.css', 'index 1..2 100644', '--- a/a.css', '+++ b/a.css',
+    '@@ -1,3 +1,4 @@ .a', ' a {}', '-b {}', '+b { color: #333; }', '+c {}', ' d {}',
+    'diff --git a/gone.css b/gone.css', 'deleted file mode 100644', '--- a/gone.css', '+++ /dev/null', '@@ -1 +0,0 @@', '-x {}',
+  ].join('\n');
+  assert.equal(numberDiff(patch), [
+    '=== a.css',
+    '      @@ -1,3 +1,4 @@ .a',
+    '    1  a {}',
+    '      -b {}',
+    '    2 +b { color: #333; }',
+    '    3 +c {}',
+    '    4  d {}',
+    '',
+    '=== gone.css (deleted)',
+    '      @@ -1 +0,0 @@',
+    '      -x {}',
+  ].join('\n'));
+});
+
+test('numberedDiff numbers a real worktree diff and can show only some files', () => {
+  const { wt, commit } = jobRepo({}, { 'b.css': 'a {}\nb {}\nc {}\nd {}\ne {}\n' });
+  commit('a.js', 'one\n');
+  commit('b.css', 'a {}\nb {}\nc {}\nd { color: #333; }\ne {}\n');
+  const mergeBase = execFileSync('git', ['merge-base', 'main', 'HEAD'], { cwd: wt }).toString().trim();
+  const all = numberedDiff(wt, mergeBase, 'HEAD');
+  assert.match(all, /=== a\.js\n.*\n {4}1 \+one/);
+  assert.match(all, /^ {4}4 \+d \{ color: #333; \}$/m);
+  assert.doesNotMatch(numberedDiff(wt, mergeBase, 'HEAD', ['b.css']), /a\.js/);
 });

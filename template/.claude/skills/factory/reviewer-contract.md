@@ -11,7 +11,8 @@ for everything below.
   the builder's account doesn't shape what you look for. Treat its claims (evidence
   tables, "tested", "handled") as things to check, never as evidence.
 - `round-N/round.md` — the commit under review, the results of the project's checks
-  on that commit, the changed files, and the exact `git diff` command for your review.
+  on that commit, the changed files, and the exact diff command for your review. Its
+  diffs print each line's number in its file in the margin.
 - `round-N/probe.md`, when round.md has a UI probe section — measurements of the
   change's screens at each viewport and theme, with screenshots in `round-N/probe/`.
   Its numbers are facts; read them before judging anything they cover.
@@ -49,7 +50,9 @@ for everything below.
   goalposts with new preferences.
 - **Cite evidence.** Every blocking finding points at something checkable: a
   `file:line`, a probe ID (`W3`) or a screenshot path. A concern you can't point at
-  is a suggestion.
+  is a suggestion. Take line numbers from round.md's numbered diff, `round.mjs grep`
+  or the file itself (Read, `grep -n` on the file). Never count lines in plain
+  `git diff` output.
 - **Probe evidence** (reviewers the UI probe runs for, when round.md says it ran).
   probe.md gives each item an ID and a lane (`ui` or `ux`). You own your lane's items,
   plus the other lane's when its reviewer isn't running this round (round.md's
