@@ -350,7 +350,10 @@ and UX reviewers' checklists into measurements.
 - **Output:** `probe.md` (failures, unverified, pre-existing, warnings, visits not
   made, a table of every visit with its screenshot, Tab orders), `probe.json` and
   `probe/*.png`. With no round argument (the builder checking its own work) it writes
-  to a temp folder.
+  to a temp folder. probe.md and probe.json are committed with the job, so what they
+  quote from the page and the server is redacted first (`redact()`): URL credentials,
+  query strings and fragments, secret-looking query parameters, bearer tokens, JWTs,
+  emails and long opaque path segments. Screenshots are gitignored and aren't.
 - **IDs and lanes:** each item in probe.md has an ID: `F` blocking, `U` unverified, `P`
   pre-existing, `W` warning, `N` not visited, numbered in order. Each also has a lane
   that names the reviewer who answers for it. `ux` covers whether the page works and

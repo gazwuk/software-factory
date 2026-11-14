@@ -191,6 +191,24 @@ export function findingsOf(m, state) {
   return out;
 }
 
+/**
+ * Masks what a probe record mustn't keep, since probe.json and probe.md are committed
+ * with the job: URL credentials, query strings and fragments (signed URLs, tokens),
+ * secret-looking query parameters elsewhere, bearer tokens, JWTs, emails, and long
+ * opaque path segments (session IDs, keys). Head and base runs mask alike, so their
+ * findings still match.
+ */
+export function redact(text) {
+  return String(text)
+    .replace(/\b([a-z][\w+.-]*:\/\/)[^\s/@'"<>]+@/gi, '$1…@')
+    .replace(/\b(https?:\/\/[^\s?#'"<>]*)[?#][^\s'"<>]*/gi, '$1?…')
+    .replace(/([?&][^=&\s#'"<>]*(?:token|key|secret|sig|password|passwd|auth|session|code)[^=&\s#'"<>]*=)[^&\s#'"<>]+/gi, '$1…')
+    .replace(/\bBearer\s+[\w.~+/-]+=*/gi, 'Bearer …')
+    .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]*/g, '…')
+    .replace(/[\w.+-]+@[a-z\d-]+(?:\.[a-z\d-]+)*\.[a-z]{2,}/gi, '…@…')
+    .replace(/\/(?=[\w-]*\d)(?=[\w-]*[a-z])[\w-]{24,}(?=[/?#\s'"<>]|$)/gi, '/…');
+}
+
 // ---------- report ----------
 
 const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
@@ -464,7 +482,7 @@ async function tabWalk(page, max) {
       if (!s.frame) trap = s.selector;
       break;
     }
-    stops.push(s);
+    stops.push({ ...s, name: redact(s.name) });
     last = s;
   }
   return { stops, trap, complete };
@@ -481,13 +499,13 @@ async function visit(browser, origin, v, ctx) {
   if (v.theme.init) await context.addInitScript(v.theme.init);
   const page = await context.newPage();
   const m = { pageErrors: [], consoleErrors: [], failedRequests: [] };
-  const short = (s) => String(s).split('\n')[0].slice(0, 200);
+  const short = (s) => redact(String(s).split('\n')[0]).slice(0, 200);
   page.on('pageerror', (e) => m.pageErrors.push(short(e.message)));
   page.on('console', (msg) => { if (msg.type() === 'error') m.consoleErrors.push(short(msg.text())); });
-  page.on('requestfailed', (req) => m.failedRequests.push(`${req.method()} ${req.url()} — ${req.failure()?.errorText}`));
+  page.on('requestfailed', (req) => m.failedRequests.push(`${req.method()} ${redact(req.url())} — ${req.failure()?.errorText}`));
   page.on('response', (res) => {
     if (res.status() >= 400 && res.request().resourceType() !== 'document' && !/\/favicon\.ico$/.test(res.url())) {
-      m.failedRequests.push(`${res.request().method()} ${res.url()} → ${res.status()}`);
+      m.failedRequests.push(`${res.request().method()} ${redact(res.url())} → ${res.status()}`);
     }
   });
   try {
@@ -555,7 +573,7 @@ async function withServer(cwd, ui, fn) {
   const tail = (n) => {
     const all = output.trim().split('\n').map((l) => l.trim()).filter(Boolean);
     const errors = all.filter((l) => /error/i.test(l));
-    return (errors.length ? errors.slice(0, 3) : all.slice(-n)).join(' / ');
+    return redact((errors.length ? errors.slice(0, 3) : all.slice(-n)).join(' / '));
   };
   try {
     const deadline = Date.now() + ui.readyTimeout * 1000;

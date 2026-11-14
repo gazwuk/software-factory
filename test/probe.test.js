@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULTS, compareWithBase, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, renderProbe, reviewGaps, tally } from '../template/.claude/skills/factory/probe.mjs';
+import { DEFAULTS, compareWithBase, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, tally } from '../template/.claude/skills/factory/probe.mjs';
 
 const SPEC = `# Billing
 
@@ -175,4 +175,22 @@ test('probeIds reads single IDs and expands ranges', () => {
   assert.deepEqual(ids('F5-F7, F17 - F19; W2-4'), ['F5', 'F6', 'F7', 'F17', 'F18', 'F19', 'W2', 'W3', 'W4']);
   assert.deepEqual(ids('U1 — not a defect; W10, N2'), ['U1', 'W10', 'N2']);
   assert.deepEqual(ids('AC2, UF1, W1x, W3–U4'), ['W3', 'U4']);
+});
+
+test('redact masks credentials, tokens and personal data, and keeps what locates a problem', () => {
+  const cases = [
+    ['GET https://cdn.example.com/u/a.png?X-Amz-Signature=abc&X-Amz-Credential=k#t → 403', 'GET https://cdn.example.com/u/a.png?… → 403'],
+    ['fetch /api/me?access_token=s3cr3t&page=2 failed', 'fetch /api/me?access_token=…&page=2 failed'],
+    ['Authorization: Bearer abc.def-ghi rejected', 'Authorization: Bearer … rejected'],
+    ['bad jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln', 'bad jwt …'],
+    ['no account for jane.doe+x@example.co.uk', 'no account for …@…'],
+    ['DATABASE_URL=postgres://admin:hunter2@db:5432/app', 'DATABASE_URL=postgres://…@db:5432/app'],
+    ['GET http://localhost:3000/s/a8f5f167f44f4964e6c998dee827110c/next → 401', 'GET http://localhost:3000/s/…/next → 401'],
+  ];
+  for (const [raw, masked] of cases) assert.equal(redact(raw), masked);
+  for (const kept of [
+    'GET http://localhost:5173/api/orders/1042 → 500',
+    'GET http://localhost:5173/assets/main.3f9a8b7c6d5e4f3a2b1c0d.js → 404',
+    "TypeError: Cannot read properties of undefined (reading 'id')",
+  ]) assert.equal(redact(kept), kept);
 });

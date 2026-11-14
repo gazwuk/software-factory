@@ -356,7 +356,8 @@ violations block: the builder fixes them before any reviewer runs. They block on
 if the change introduced them. The probe repeats failing visits on the merge base,
 and anything already there is reported as pre-existing. The rest are warnings for
 the reviewers. The report is `round-N/probe.md`; screenshots are in `round-N/probe/`
-(gitignored).
+(gitignored). The report is committed with the job, so URLs and messages in it are
+redacted: query strings, credentials, tokens and emails are masked.
 
 Each item in the report has an ID and a lane, `ui` or `ux`, so every item has exactly
 one owner. A UI or UX review must answer every item it owns and list the screenshots
