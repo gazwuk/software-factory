@@ -359,7 +359,8 @@ and UX reviewers' checklists into measurements.
   alternatives, structure, target size, …).
 - **Checking a review:** `probe.mjs check-review <id> <n> <reviewer>` (and
   `checkReview()`) lists what a probe reviewer's review leaves out. It must answer
-  every U, W and N item in the lanes it owns under `## Probe findings`, and list
+  every U, W and N item in the lanes it owns under `## Probe findings` (a range such
+  as `W1–W6` answers each item in it), and list
   under `## Coverage` every screenshot it owes: all of them for the `ui` lane, and
   the Tab-order visits for `ux`. A reviewer owns its own lane, plus any lane whose
   reviewer isn't running this round. The runner counts a review with gaps as not

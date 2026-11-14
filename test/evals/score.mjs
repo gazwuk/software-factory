@@ -8,7 +8,7 @@
 // a defect when its visit is in the defect's `state` and the finding uses one of its
 // `keywords`. A finding that finds no defect but cites a control's location is a
 // false positive on the controls.
-import { numbered } from '../../template/.claude/skills/factory/probe.mjs';
+import { numbered, probeIds } from '../../template/.claude/skills/factory/probe.mjs';
 
 const LANES = ['ui', 'ux'];
 
@@ -24,7 +24,7 @@ export function citations(text) {
     const from = Number(m[2]);
     lines.push({ file: m[1], from, to: Math.max(from, Number(m[3] ?? from)) });
   }
-  const probe = [...new Set([...text.matchAll(/(?<![\w-])([FUPWN]\d+)(?![\w-])/g)].map((m) => m[1]))];
+  const probe = [...probeIds(text)];
   const shots = [...new Set([...text.matchAll(/([\w.-]+\.png)\b/g)].map((m) => m[1]))];
   return { lines, probe, shots };
 }
@@ -44,9 +44,9 @@ export function blockingFindings(review) {
   }
   for (const f of findings) f.cites = citations(f.text);
   for (const line of section(review, 'Probe findings').split('\n')) {
-    const m = /([FUPWN]\d+)\b.*?\bblocking\s*#\s*(\d+)/i.exec(line);
-    const f = m && findings.find((x) => x.n === Number(m[2]));
-    if (f && !f.cites.probe.includes(m[1])) f.cites.probe.push(m[1]);
+    const n = /\bblocking\s*#\s*(\d+)/i.exec(line)?.[1];
+    const f = n && findings.find((x) => x.n === Number(n));
+    for (const id of f ? probeIds(line) : []) if (!f.cites.probe.includes(id)) f.cites.probe.push(id);
   }
   return findings;
 }

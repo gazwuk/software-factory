@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULTS, compareWithBase, findingsOf, laneOf, numbered, parseScreens, planVisits, renderProbe, reviewGaps, tally } from '../template/.claude/skills/factory/probe.mjs';
+import { DEFAULTS, compareWithBase, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, renderProbe, reviewGaps, tally } from '../template/.claude/skills/factory/probe.mjs';
 
 const SPEC = `# Billing
 
@@ -160,8 +160,19 @@ test('reviewGaps lists the probe items and screenshots a review leaves out', () 
   // ux answers its own items and only views the Tab-order screenshots.
   const ux = '## Probe findings\n- W2 — not a defect: dev-only warning\n- N1 — covered by `a.test.tsx` "shows the error"\n\n## Coverage\n- a-default-1280-light.png\n';
   assert.deepEqual(reviewGaps({ probe, review: ux, name: 'ux', running: both }), []);
+  // A range answers every item in it.
+  const ranged = ui.replace('- U1 — blocking #1', '- U1 — blocking #1\n- W1–W2 — blocking #2');
+  assert.deepEqual(reviewGaps({ probe, review: ranged, name: 'ui', running: ['ui'] }).filter((x) => !x.endsWith('.png')), ['N1']);
   // With ux skipped this round, ui owns its lane too.
   assert.deepEqual(reviewGaps({ probe, review: '', name: 'ui', running: ['ui'] }).slice(0, 4), ['U1', 'W1', 'W2', 'N1']);
   // Nothing is owed when the probe didn't run.
   assert.deepEqual(reviewGaps({ probe: { status: 'skipped' }, review: '', name: 'ui', running: both }), []);
+});
+
+test('probeIds reads single IDs and expands ranges', () => {
+  const ids = (text) => [...probeIds(text)];
+  assert.deepEqual(ids('W1–W4 — blocking #2'), ['W1', 'W2', 'W3', 'W4']);
+  assert.deepEqual(ids('F5-F7, F17 - F19; W2-4'), ['F5', 'F6', 'F7', 'F17', 'F18', 'F19', 'W2', 'W3', 'W4']);
+  assert.deepEqual(ids('U1 — not a defect; W10, N2'), ['U1', 'W10', 'N2']);
+  assert.deepEqual(ids('AC2, UF1, W1x, W3–U4'), ['W3', 'U4']);
 });

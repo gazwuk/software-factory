@@ -55,7 +55,8 @@ for everything below.
   plus the other lane's when its reviewer isn't running this round (round.md's
   Reviewers table says). Under `## Probe findings`, answer every item you own under
   Unverified (`U…`), Warnings (`W…`) and Not visited (`N…`): its ID, then
-  `blocking #<n>` or `not a defect: <why>`. View the screenshots your agent file asks
+  `blocking #<n>` or `not a defect: <why>`. A range (`W1–W6 — blocking #4`) answers
+  every item in it. View the screenshots your agent file asks
   for with Read and list each file under Coverage. The factory checks both
   mechanically: a review that leaves an item or a screenshot out is run again, and
   then goes to a human.

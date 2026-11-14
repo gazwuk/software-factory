@@ -297,6 +297,20 @@ function section(markdown, heading) {
 }
 
 /**
+ * The probe IDs some text names, with ranges expanded: `W1–W4` (or `W1-W4`, `W1-4`)
+ * names W1, W2, W3 and W4.
+ */
+export function probeIds(text) {
+  const ids = new Set();
+  const re = /(?<![A-Za-z0-9])([FUPWN])(\d+)(?:(?:\s*[-–]\s*\1|[-–])(\d+))?(?![A-Za-z0-9])/g;
+  for (const [, prefix, from, to] of text.matchAll(re)) {
+    const last = to === undefined ? Number(from) : Number(to);
+    for (let k = Number(from); k <= Math.max(Number(from), last); k++) ids.add(`${prefix}${k}`);
+  }
+  return ids;
+}
+
+/**
  * What a probe reviewer's review leaves out. It answers every U, W and N item in the
  * lanes it owns under `## Probe findings`, and lists the screenshots it viewed under
  * `## Coverage`: all of them for the ui lane, the Tab-order visits for ux. A lane
@@ -306,11 +320,11 @@ export function reviewGaps({ probe, review, name, running }) {
   if (probe?.status !== 'ran') return [];
   const lanes = LANES.filter((l) => l === name || !running.includes(l));
   if (!lanes.length) return [];
-  const answered = section(review, 'Probe findings');
+  const answered = probeIds(section(review, 'Probe findings'));
   const ids = numbered(probe)
     .filter((x) => ['U', 'W', 'N'].includes(x.section) && lanes.includes(x.lane))
     .map((x) => x.id)
-    .filter((id) => !new RegExp(`(^|[^A-Za-z0-9])${id}(?![0-9])`).test(answered));
+    .filter((id) => !answered.has(id));
   const viewed = section(review, 'Coverage');
   const shots = probe.visits
     .filter((v) => v.screenshot && (lanes.includes('ui') || (lanes.includes('ux') && v.tab)))
