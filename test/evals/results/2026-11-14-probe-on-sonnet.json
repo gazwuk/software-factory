@@ -1,0 +1,734 @@
+{
+  "date": "2026-11-14T18:51:36.957Z",
+  "variant": "probe-on-sonnet",
+  "probe": "on",
+  "model": "sonnet",
+  "runs": 3,
+  "summary": {
+    "reviewers": {
+      "ui": {
+        "recall": {
+          "mean": 1,
+          "min": 1,
+          "max": 1
+        },
+        "precision": {
+          "mean": 1,
+          "min": 1,
+          "max": 1
+        },
+        "falsePositives": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "cost": {
+          "mean": 0.18643333333333334,
+          "min": 0.1829,
+          "max": 0.1909
+        },
+        "tokens": {
+          "mean": 138320.33333333334,
+          "min": 117783,
+          "max": 150860
+        },
+        "checkReview": "3/3"
+      },
+      "ux": {
+        "recall": {
+          "mean": 0.9523809523809524,
+          "min": 0.8571428571428571,
+          "max": 1
+        },
+        "precision": {
+          "mean": 0.8101851851851851,
+          "min": 0.6666666666666666,
+          "max": 0.8888888888888888
+        },
+        "falsePositives": {
+          "mean": 0.3333333333333333,
+          "min": 0,
+          "max": 1
+        },
+        "cost": {
+          "mean": 0.1840333333333333,
+          "min": 0.1752,
+          "max": 0.1898
+        },
+        "tokens": {
+          "mean": 117900,
+          "min": 114858,
+          "max": 120147
+        },
+        "checkReview": "3/3"
+      }
+    },
+    "combined": {
+      "mean": 0.9722222222222222,
+      "min": 0.9166666666666666,
+      "max": 1
+    },
+    "probe": {
+      "mean": 0.4166666666666667,
+      "min": 0.4166666666666667,
+      "max": 0.4166666666666667
+    },
+    "defects": {
+      "ui-overflow": 3,
+      "ui-token": 3,
+      "ui-focus": 3,
+      "ui-contrast": 3,
+      "ui-target": 3,
+      "ux-name": 3,
+      "ux-confirm": 2,
+      "ux-error": 3,
+      "ux-input": 3,
+      "ux-dialog-focus": 3,
+      "ux-flow-test": 3,
+      "ux-empty": 3
+    }
+  },
+  "results": [
+    {
+      "reviewers": {
+        "ui": {
+          "verdict": "CHANGES",
+          "blocking": 5,
+          "matched": 5,
+          "precision": 1,
+          "recall": 1,
+          "found": [
+            "ui-overflow",
+            "ui-contrast",
+            "ui-target",
+            "ui-focus",
+            "ui-token"
+          ],
+          "foundInLane": [
+            "ui-overflow",
+            "ui-token",
+            "ui-focus",
+            "ui-contrast",
+            "ui-target"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "ui-overflow"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [
+                "ui-contrast"
+              ],
+              "controls": [
+                "c-pill-tokens"
+              ]
+            },
+            {
+              "n": 3,
+              "defects": [
+                "ui-target"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "ui-focus"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [
+                "ui-token"
+              ],
+              "controls": []
+            }
+          ],
+          "ok": true,
+          "error": null,
+          "checkReview": true,
+          "cost": 0.1855,
+          "tokens": 150860,
+          "seconds": 32,
+          "model": "sonnet"
+        },
+        "ux": {
+          "verdict": "CHANGES",
+          "blocking": 8,
+          "matched": 7,
+          "precision": 0.875,
+          "recall": 1,
+          "found": [
+            "ux-name",
+            "ux-confirm",
+            "ux-dialog-focus",
+            "ux-input",
+            "ux-error",
+            "ux-empty",
+            "ux-flow-test"
+          ],
+          "foundInLane": [
+            "ux-name",
+            "ux-confirm",
+            "ux-error",
+            "ux-input",
+            "ux-dialog-focus",
+            "ux-flow-test",
+            "ux-empty"
+          ],
+          "falsePositives": 1,
+          "controlsFlagged": [
+            "c-field-errors"
+          ],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "ux-name"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [
+                "ux-confirm"
+              ],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "ux-dialog-focus"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "ux-input"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [],
+              "controls": [
+                "c-field-errors"
+              ]
+            },
+            {
+              "n": 6,
+              "defects": [
+                "ux-error"
+              ],
+              "controls": []
+            },
+            {
+              "n": 7,
+              "defects": [
+                "ux-empty"
+              ],
+              "controls": []
+            },
+            {
+              "n": 8,
+              "defects": [
+                "ux-flow-test"
+              ],
+              "controls": []
+            }
+          ],
+          "ok": true,
+          "error": null,
+          "checkReview": true,
+          "cost": 0.1871,
+          "tokens": 120147,
+          "seconds": 39,
+          "model": "sonnet"
+        }
+      },
+      "combined": {
+        "found": [
+          "ui-overflow",
+          "ui-contrast",
+          "ui-target",
+          "ui-focus",
+          "ui-token",
+          "ux-name",
+          "ux-confirm",
+          "ux-dialog-focus",
+          "ux-input",
+          "ux-error",
+          "ux-empty",
+          "ux-flow-test"
+        ],
+        "recall": 1,
+        "byLane": {
+          "ui": 1,
+          "ux": 1
+        }
+      },
+      "probe": {
+        "status": "ran",
+        "flagged": [
+          "ui-overflow",
+          "ui-focus",
+          "ui-contrast",
+          "ui-target",
+          "ux-name"
+        ],
+        "recall": 0.4166666666666667,
+        "byLane": {
+          "ui": 0.8,
+          "ux": 0.14285714285714285
+        }
+      },
+      "reviews": {
+        "ui": "VERDICT: CHANGES\n\n# UI design review — 001-orders-page, round 1\n\n## Summary\nThe orders page reuses the shared tokens and `.button` well, but the table breaks reflow at 320px, the row action icons are too small and lose their focus indicator, the secondary text fails contrast, and the page title uses a literal colour.\n\n## Blocking\n1. **Table forces sideways page scroll at 320px** — `styles/orders.css:37` (`.orders-table { min-width: 720px }`), F1, F13, `probe/orders-default-320-light.png`\n   Problem: the table is 736px wide inside `#orders` with no scroll container, so the whole page scrolls sideways. The screenshot shows the Placed, Status, Total and action columns cut off at the viewport edge.\n   Required change: wrap the table in a container (e.g. `.table-scroll { overflow-x: auto }`) so only the table scrolls, inside its own box. Or reflow the rows at narrow widths. Remove the page-level overflow.\n2. **Secondary text fails contrast** — `styles/orders.css:51-55` (`.order-meta` uses `--color-disabled`), F5–F7, F17–F19, `probe/orders-default-1280-light.png`\n   Problem: `#aab2ba` on `#fff` is 2.14:1 for 14px text, and it isn't disabled content. The minimum is 4.5:1.\n   Required change: use `var(--color-muted)` (#59636e), which is already used for the input borders. Don't use `--color-disabled` for readable text.\n3. **Row action targets are 16×16px** — `styles/orders.css:71-72` (`.icon-btn { width: 16px; height: 16px; margin-left: 2px }`), F8–F12, F20–F24\n   Problem: the targets are below 24px and only about 2px apart.\n   Required change: make `.icon-btn` at least `var(--target-min)` square (`min-width` and `min-height`), and keep the icon at 16px inside it. Add `var(--space-1)` or more of spacing between the buttons.\n4. **Focus indicator removed on icon buttons** — `styles/orders.css:88-90` (`.icon-btn:focus { outline: none }`), W1–W6\n   Problem: no replacement focus style is set. The tab-order section of the probe lists all six row buttons as \"focus not visible\", so keyboard users can't see where they are.\n   Required change: remove the rule, or replace it with `.icon-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }`, matching `.button` in `styles/app.css:62`. Also check the ring has ≥3:1 contrast against the neighbouring background.\n5. **Literal colour where a token exists** — `styles/orders.css:2` (`.orders-title { color: #333 }`)\n   Problem: this breaks the project convention that colours come from `styles/tokens.css`. In the screenshots the h1 renders visibly lighter than the h2 \"New order\" beside it (#333 against #1f2328), which is an inconsistency.\n   Required change: drop the rule, or use `var(--color-text)`.\n\n## Coverage\n- Read: `styles/orders.css`, `orders.html`, `index.html`, `js/orders.js` (markup, icons and aria for the front end only), `styles/tokens.css`, `styles/app.css`. `tests/orders.test.js` has no visual surface.\n- Not read: None.\n- Screens viewed: probe/orders-default-320-light.png, probe/orders-default-1280-light.png, probe/orders-state-empty-empty-320-light.png, probe/orders-state-empty-empty-1280-light.png, probe/orders-state-error-error-320-light.png, probe/orders-state-error-error-1280-light.png, probe/orders-order-1-details-dialog-320-light.png, probe/orders-order-1-details-dialog-1280-light.png\n\n## Probe findings\n- F1, F13 — blocking #1\n- F5–F7, F17–F19 — blocking #2\n- F8–F12, F20–F24 — blocking #3\n- W1–W6 — blocking #4\n- W2, W4, W6 — also covered by #4. The delete buttons have no accessible name (F2–F4, F14–F16), which the UX reviewer owns.\n- W9 — not a defect: the Close button takes its focus style from `.button:focus-visible` (`styles/app.css:62`, unchanged). `probe/orders-order-1-details-dialog-1280-light.png` shows the ring around Close.\n- F2–F4, F14–F16, W7, W8 — `ux` lane, answered by the UX reviewer.\n\n## Suggestions (non-blocking)\n- The empty and error states are plain unstyled text. A heading-weight or muted treatment would help, and the error state could use `--color-danger`.\n- The Customer and Total inputs are capped at 320px. That is fine, but the Add order form could sit inline at wide widths so the table sits higher.\n",
+        "ux": "VERDICT: CHANGES\n\n# UX review — 001-orders-page, round 1\n\n## Summary\nThe page loads and the happy paths work, but the Delete button has no accessible name and no confirmation, the empty and error states give no next step, a rejected order wipes what the user typed, and closing the dialog loses focus. The AC3 test never uses the UI. `round.md` lists no checks, so nothing runs `tests/orders.test.js` on this commit (see Flows).\n\n## Blocking\n1. **Delete button has no accessible name** — `js/orders.js:39`, probe F2–F4, F14–F16, Tab order stops 8/10/12 (`button \"\"`)\n   Problem: the delete button holds only an `aria-hidden` SVG, so screen-reader and voice users get an unnamed button. The probe flags it as axe `button-name` (critical).\n   Required change: add `aria-label=\"Delete order #${o.id}\"`. The accessible name must contain the visible label, so use \"Delete\" in it.\n2. **Delete is immediate and can't be undone** — `js/orders.js:88`\n   Problem: one click on a 16px icon calls `removeOrder` and the order is gone. There is no confirmation and no undo.\n   Required change: ask for confirmation that names the order (\"Delete order #1 (Ada Lovelace)?\"), or offer an Undo. Delete must still work from the keyboard.\n3. **Closing the dialog doesn't return focus** — `js/orders.js:79-81`, AC5\n   Problem: `closeDetails()` only sets `hidden`. Focus is lost to the document, not put back on the **View order #n** button that opened it. AC5 requires focus to return there. A deep-linked open (`?order=1`) has no opener, so it needs a defined fallback, such as the order's View button.\n   Required change: remember `document.activeElement` in `openDetails`, and focus it in `closeDetails`. For the deep link, focus that order's View button.\n4. **A rejected or failed submit erases the user's input** — `js/orders.js:110`\n   Problem: `form.reset()` runs before the response is checked. After a 422 (\"Enter a total greater than 0.\") or a network failure, both fields are cleared. AC4 says what was typed must be kept.\n   Required change: call `form.reset()` only on success. After a 422, move focus to the invalid field.\n5. **Field errors aren't announced or tied to the field state** — `orders.html:29,34`, `js/orders.js:113-115`\n   Problem: `#customer-error` and `#total-error` are plain `<p>` elements that are filled in without moving focus. They have no live region and the inputs get no `aria-invalid`, so a screen-reader user gets no feedback. A response that isn't JSON, or one whose `field` has no matching element, throws inside the handler. The user sees nothing.\n   Required change: give the error elements `role=\"alert\"` (or put them in a live region), set `aria-invalid=\"true\"` on the named input, and handle an unknown `field` or unparseable body by announcing a general message.\n6. **Error state says nothing useful and isn't announced** — `js/orders.js:26`, `probe/orders-state-error-error-1280-light.png`\n   Problem: a failed load shows the bare \"Something went wrong.\" It doesn't say what failed or how to recover. It sits in `#orders`, which is not a live region. The spec (AC1) requires \"says so and how to recover\".\n   Required change: show something like \"Couldn't load orders. Check your connection and try again.\" with a **Try again** button that calls `load()`, and announce it with `role=\"alert\"`.\n7. **Empty state doesn't say what to do next** — `js/orders.js:46`, `probe/orders-state-empty-empty-1280-light.png`\n   Problem: \"No orders.\" is a dead end. AC1 requires it to say what to do next.\n   Required change: for example \"No orders yet. Use New order above to add one.\" The delete flow also reaches this state (the last order removed), so use the same copy there.\n8. **AC3 test doesn't drive the UI** — `tests/orders.test.js:30`\n   Problem: it calls `page.evaluate(() => window.removeOrder(1))` and never presses **Delete**. `window.removeOrder` exists only for this test (`js/orders.js:67`). It also bypasses the missing accessible name in #1, so the test passes while real users can't find the button.\n   Required change: click `getByRole('button', { name: /Delete/ })` within order #1's row, then assert the row is gone and \"Order removed.\" is announced. Remove the `window.removeOrder` global.\n\n## Flows\n| AC | Test | Drives the UI | Every step | Every Expect | Run by check |\n|---|---|---|---|---|---|\n| AC2 | `orders.test.js` \"AC2: adds an order\" | yes (label and role) | yes | yes: Grace Hopper cell and \"Order added.\" status | no: round.md lists no checks |\n| AC3 | `orders.test.js` \"AC3: removes an order\" | no: `page.evaluate(window.removeOrder)` | no: Delete is never pressed | yes: row gone and \"Order removed.\" | no: round.md lists no checks |\n\nAC4 and AC5 are `manual` in the spec.\n\nNot blocking, but for the approver: `round.md` says \"No checks configured\", so no check runs `npm test`. The tests above have not run on this commit through the factory. build.md says they pass, which is a claim only.\n\n## Coverage\n- Read: `orders.html`, `js/orders.js`, `tests/orders.test.js`, `index.html`, `styles/orders.css`\n- Not read: None.\n- Screens viewed: probe/orders-default-1280-light.png, probe/orders-state-empty-empty-1280-light.png, probe/orders-state-error-error-1280-light.png, probe/orders-order-1-details-dialog-1280-light.png\n\nTab orders against screenshots:\n- Default: the order matches the reading order (nav, Customer, Total, Add order, then each row's View and Delete). The three delete stops have empty names (#1).\n- Empty and error: the stops are nav and form only. There is no recovery control in the error state (#6).\n- Dialog: Close is the only stop and the trap is intentional. Focus is visible in the screenshot, with a halo around Close.\n\n## Probe findings\n- F2–F4, F14–F16 — blocking #1\n- W7, W8 — not a defect: these are the expected 500 from `/orders?state=error`, which is an error state. The page handles it at `js/orders.js:22-26`, but the message needs fixing (#6).\n- U/N items: none listed in probe.md.\n- F1, F5–F13, F17–F24 and W1–W6, W9 are lane `ui`. The UI reviewer runs this round, so they are not mine.\n\n## Suggestions (non-blocking)\n- After a successful delete the row, and so the focused button, disappears. Move focus to the next row's View button or to the page heading.\n- A deep link to a missing order (`?order=99`) silently shows nothing. Consider announcing \"Order #99 not found.\"\n- The details dialog shows only the order number, customer and total. Including date, status and items would make it more useful. The spec doesn't require this.\n"
+      },
+      "repo": null
+    },
+    {
+      "reviewers": {
+        "ui": {
+          "verdict": "CHANGES",
+          "blocking": 6,
+          "matched": 6,
+          "precision": 1,
+          "recall": 1,
+          "found": [
+            "ui-overflow",
+            "ui-contrast",
+            "ui-target",
+            "ui-focus",
+            "ui-token",
+            "ux-name"
+          ],
+          "foundInLane": [
+            "ui-overflow",
+            "ui-token",
+            "ui-focus",
+            "ui-contrast",
+            "ui-target"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "ui-overflow"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [
+                "ui-contrast"
+              ],
+              "controls": [
+                "c-pill-tokens"
+              ]
+            },
+            {
+              "n": 3,
+              "defects": [
+                "ui-target"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "ui-focus"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [
+                "ui-token"
+              ],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [
+                "ui-focus",
+                "ux-name"
+              ],
+              "controls": []
+            }
+          ],
+          "ok": true,
+          "error": null,
+          "checkReview": true,
+          "cost": 0.1829,
+          "tokens": 146318,
+          "seconds": 32,
+          "model": "sonnet"
+        },
+        "ux": {
+          "verdict": "CHANGES",
+          "blocking": 9,
+          "matched": 8,
+          "precision": 0.8888888888888888,
+          "recall": 1,
+          "found": [
+            "ux-name",
+            "ux-confirm",
+            "ux-input",
+            "ux-error",
+            "ux-empty",
+            "ux-dialog-focus",
+            "ux-flow-test"
+          ],
+          "foundInLane": [
+            "ux-name",
+            "ux-confirm",
+            "ux-error",
+            "ux-input",
+            "ux-dialog-focus",
+            "ux-flow-test",
+            "ux-empty"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "ux-name"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "ux-confirm"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "ux-input"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [
+                "ux-input"
+              ],
+              "controls": [
+                "c-field-errors"
+              ]
+            },
+            {
+              "n": 6,
+              "defects": [
+                "ux-error"
+              ],
+              "controls": []
+            },
+            {
+              "n": 7,
+              "defects": [
+                "ux-empty"
+              ],
+              "controls": []
+            },
+            {
+              "n": 8,
+              "defects": [
+                "ux-dialog-focus"
+              ],
+              "controls": []
+            },
+            {
+              "n": 9,
+              "defects": [
+                "ux-dialog-focus",
+                "ux-flow-test"
+              ],
+              "controls": []
+            }
+          ],
+          "ok": true,
+          "error": null,
+          "checkReview": true,
+          "cost": 0.1752,
+          "tokens": 114858,
+          "seconds": 37,
+          "model": "sonnet"
+        }
+      },
+      "combined": {
+        "found": [
+          "ui-overflow",
+          "ui-contrast",
+          "ui-target",
+          "ui-focus",
+          "ui-token",
+          "ux-name",
+          "ux-confirm",
+          "ux-input",
+          "ux-error",
+          "ux-empty",
+          "ux-dialog-focus",
+          "ux-flow-test"
+        ],
+        "recall": 1,
+        "byLane": {
+          "ui": 1,
+          "ux": 1
+        }
+      },
+      "probe": {
+        "status": "ran",
+        "flagged": [
+          "ui-overflow",
+          "ui-focus",
+          "ui-contrast",
+          "ui-target",
+          "ux-name"
+        ],
+        "recall": 0.4166666666666667,
+        "byLane": {
+          "ui": 0.8,
+          "ux": 0.14285714285714285
+        }
+      },
+      "reviews": {
+        "ui": "VERDICT: CHANGES\n\n# UI design review — 001-orders-page, round 1\n\n## Summary\nThe orders page reuses tokens and the shared `.button` well, but the table forces sideways page scroll at 320px, the secondary text and icon buttons fail contrast, target size and focus rules, and the title uses a literal colour.\n\n## Blocking\n1. **Page overflows sideways at 320px** — `styles/orders.css:37` (`.orders-table { min-width: 720px }`), F1, F13, `probe/orders-default-320-light.png`\n   Problem: the table is 736px wide in a 320px viewport, so the page scrolls sideways. The Placed, Status, Total and action columns are cut off in the screenshot. The table sits straight in `#orders`, not in its own scroll box.\n   Required change: remove the page-level overflow. Either wrap the table in a container with `overflow-x: auto` so only the table scrolls, or reflow the rows into stacked cards at narrow widths. Drop the fixed `min-width` unless it sits inside that scroll box.\n2. **`.order-meta` text fails contrast (2.14:1)** — `styles/orders.css:52-56`, F5–F7, F17–F19\n   Problem: `color: var(--color-disabled)` (#aab2ba) on white, at 14px normal weight, needs 4.5:1. `--color-disabled` is a token for disabled controls, and this is live information.\n   Required change: use `var(--color-muted)` (#59636e) or another token that reaches 4.5:1.\n3. **Icon buttons are 16×16 with too little space** — `styles/orders.css:75-76`, F8–F12, F20–F24\n   Problem: `.icon-btn` is `width: 16px; height: 16px` with `margin-left: 2px`. This is below the 24px minimum and the 24px-circle spacing exception doesn't hold (safe diameter 20.4px).\n   Required change: make each button at least `var(--target-min)` (24px) square, for example `min-width`/`min-height: var(--target-min)` with the 16px icon centred inside. Keep a gap between the two buttons.\n4. **Icon buttons have no visible focus indicator** — `styles/orders.css:97-99` (`.icon-btn:focus { outline: none }`), W1–W6, tab order stops 7–12\n   Problem: the outline is removed with no replacement, so the view and delete buttons show no change on keyboard focus. The shared rule in `styles/app.css:65` only covers `.button` and `a`.\n   Required change: delete the `outline: none` rule and add `.icon-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }`. The ring is the project convention.\n5. **Literal colour where a token exists** — `styles/orders.css:2` (`.orders-title { color: #333 }`)\n   Problem: `#333` makes the h1 a different colour from every other heading (the \"New order\" h2 is `--color-text`). `probe/orders-default-1280-light.png` shows this. The project convention bans literal colours.\n   Required change: remove the rule, or use `var(--color-text)`.\n6. **Icon-only delete button has no text alternative** — `js/orders.js:39`, F2–F4, F14–F16, W2/W4/W6 (accessible name is \"\")\n   Problem: the delete button has an SVG with `aria-hidden` and no `aria-label`, so it has no accessible name. The view button on line 38 does have one. This is the text-alternatives rule in my lane.\n   Required change: add `aria-label=\"Delete order #${o.id}\"` to the delete button.\n\n## Coverage\n- Read: `index.html`, `orders.html`, `styles/orders.css`, `js/orders.js` (the markup and visual hooks; its logic belongs to the code reviewer), `styles/tokens.css`, `styles/app.css`\n- Not read: `tests/orders.test.js` (tests, no visual surface)\n- Screens viewed: probe/orders-default-320-light.png, probe/orders-default-1280-light.png, probe/orders-state-empty-empty-320-light.png, probe/orders-state-empty-empty-1280-light.png, probe/orders-state-error-error-320-light.png, probe/orders-state-error-error-1280-light.png, probe/orders-order-1-details-dialog-320-light.png, probe/orders-order-1-details-dialog-1280-light.png\n\n## Probe findings\n- F1, F13 — blocking #1\n- F5–F7, F17–F19 — blocking #2\n- F8–F12, F20–F24 — blocking #3\n- W1–W6 — blocking #4\n- F2–F4, F14–F16 (ux lane, answered here too since the UX reviewer runs) — blocking #6, also covered by UX review\n- W7, W8 (ux lane) — not a defect for UI: they come from the intentional `?state=error` probe and are the UX reviewer's\n- W9 — not a defect: the Close button is a `.button`, which gets `--focus-ring` from `styles/app.css:65-69`. `probe/orders-order-1-details-dialog-320-light.png` and the 1280 screenshot show the ring. The probe saw no change because the button was already focused when the dialog opened.\n\n## Suggestions (non-blocking)\n- The `dl` in the details dialog uses the browser's default `dd` indent. Putting terms and values side by side with a small grid would read better (`probe/orders-order-1-details-dialog-1280-light.png`).\n- The empty and error messages are plain text with no styling. The two states are visually identical apart from the wording.\n",
+        "ux": "VERDICT: CHANGES\n\n# UX review — 001-orders-page, round 1\n\n## Summary\nThe page works on the happy path, but the Delete button has no accessible name and deletes with no confirmation. A failed add wipes what the user typed. Error and empty states give no next step. Closing the dialog doesn't return focus, and the AC3 test doesn't drive the UI. No checks are configured, so no test in this round was run by a check.\n\n## Blocking\n1. **Delete button has no accessible name** — `js/orders.js:37`, F2–F4, F14–F16, probe Tab order stops 8/10/12\n   Problem: the trash button has only an `aria-hidden` SVG, so its name is \"\". Screen reader users hear an unnamed button. The spec's flow step says **Delete**.\n   Required change: add `aria-label=\"Delete order #${o.id}\"` (the name must contain \"Delete\").\n\n2. **Delete is destructive with no confirmation or undo** — `js/orders.js:93-95`\n   Problem: one click on a 16px icon calls `removeOrder` immediately and permanently removes the order.\n   Required change: ask for confirmation that names the order (for example \"Delete order #1 (Ada Lovelace)?\"), or offer an undo.\n\n3. **Focus is lost after a delete** — `js/orders.js:65-66`\n   Problem: `render()` replaces the whole table, so focus falls back to `<body>`. A keyboard user has to Tab from the top of the page again.\n   Required change: after a successful delete, move focus somewhere sensible, such as the next row's View button, or the New order heading or status if the list is now empty.\n\n4. **A failed submit wipes the user's input (AC4)** — `js/orders.js:109`\n   Problem: `form.reset()` runs before the response is checked, so on a 422 or a network failure both fields are cleared. AC4 says the typed values are kept.\n   Required change: reset only after a successful response.\n\n5. **Field errors aren't announced, and an unknown field crashes the handler** — `js/orders.js:111-113`, `orders.html:27,32`\n   Problem: `.field-error` is a plain `<p>`, so the error appears without moving focus and is silent to screen readers. The inputs also lack `aria-invalid`. If the API names a field with no `<field>-error` element, `getElementById(...)` is null and the handler throws, so the user sees nothing. Parsing a non-JSON error body has the same effect.\n   Required change: give the error elements `role=\"alert\"` (or put them in a live region), set `aria-invalid=\"true\"` on the named input and move focus to it, and fall back to a visible, announced message when the field is unknown or the body can't be parsed.\n\n6. **Error state is a bare \"Something went wrong.\"** — `js/orders.js:23-25`, `probe/orders-state-error-error-1280-light.png`\n   Problem: AC1 requires saying the orders can't be loaded and how to recover. The message says neither. It's also not in a live region, and there is no retry control. The caught error is swallowed.\n   Required change: show something like \"Couldn't load orders. Check your connection and try again.\" with a **Try again** button, and announce it (`role=\"alert\"`).\n\n7. **Empty state doesn't say what to do next** — `js/orders.js:46`, `probe/orders-state-empty-empty-1280-light.png`\n   Problem: \"No orders.\" is a dead end. AC1 requires \"what to do next\".\n   Required change: for example \"No orders yet. Add one with the New order form above.\"\n\n8. **Closing the dialog doesn't return focus (AC5)** — `js/orders.js:81-83`\n   Problem: `closeDetails()` only sets `hidden`. Focus drops to `<body>` after Close or Escape, instead of returning to the **View order #n** button that opened it.\n   Required change: remember the opener in `openDetails` and call `opener.focus()` in `closeDetails`. A deep link (`?order=`) has no opener, so focus the Orders heading or the first control there.\n\n9. **AC3 test doesn't drive the UI** — `tests/orders.test.js:29`\n   Problem: it calls `window.removeOrder(1)` through `page.evaluate`, so no button is pressed. The step says to press **Delete** on order #1. The `window.removeOrder` global in `js/orders.js:70` exists only so the test can do this. The test would still pass with the Delete button missing or unnamed, which is the case today (finding 1).\n   Required change: click `page.getByRole('button', { name: 'Delete order #1' })`, and assert on the row and the status message. Remove the `window.removeOrder` global.\n\n## Flows\n| AC | Test | Drives the UI | Every step | Every Expect | Run by check |\n|---|---|---|---|---|---|\n| AC2 | `orders.test.js` \"AC2: adds an order\" | yes | yes | yes (row cell and \"Order added.\" status) | no: no checks configured |\n| AC3 | `orders.test.js` \"AC3: removes an order\" | no: `page.evaluate(() => window.removeOrder(1))` | no: never presses **Delete** | yes (row gone, \"Order removed.\") | no: no checks configured |\n\nAC4 and AC5 are marked `manual` in the spec. Findings 4, 5 and 8 show they are unmet in the code.\n\n## Coverage\n- Read: `orders.html`, `js/orders.js`, `tests/orders.test.js`, `index.html` (Orders link; no issues). `styles/orders.css` is the UI reviewer's lane. I did not read it.\n- Not read: `styles/orders.css` (UI lane).\n- Screens viewed:\n  - probe/orders-default-1280-light.png\n  - probe/orders-state-empty-empty-1280-light.png\n  - probe/orders-state-error-error-1280-light.png\n  - probe/orders-order-1-details-dialog-1280-light.png\n\n## Probe findings\n- F2–F4, F14–F16 — blocking #1\n- W7, W8 — not a defect: both come from the deliberate 500 on `/orders?state=error`, which is an error state. The message is still inadequate (blocking #6).\n- No `ux` Unverified or Not visited items. The probe lists no loading state, and the spec's Assumptions say there is none.\n- Tab order: the default screen's six action buttons are in reading order. Stops 8, 10 and 12 have empty names (blocking #1). The dialog's Tab order is Close only and Tab is trapped on it. The dialog has no stop on the opener, which relates to blocking #8.\n- The checks configuration is empty, so no check runs `tests/orders.test.js`. See the Summary.\n- ui-lane items (F1, F5–F13, F17–F24, W1–W6, W9) are the UI reviewer's, and that reviewer is running.\n\n## Suggestions (non-blocking)\n- Add the placed date, status and item count to the details dialog, so \"details\" shows more than the table does.\n- Add a tests for the empty and error states, and for the failed add (field error text, kept input).\n- Close the dialog on a backdrop click.\n"
+      },
+      "repo": null
+    },
+    {
+      "reviewers": {
+        "ui": {
+          "verdict": "CHANGES",
+          "blocking": 6,
+          "matched": 6,
+          "precision": 1,
+          "recall": 1,
+          "found": [
+            "ui-overflow",
+            "ui-contrast",
+            "ui-target",
+            "ui-focus",
+            "ui-token",
+            "ux-name"
+          ],
+          "foundInLane": [
+            "ui-overflow",
+            "ui-token",
+            "ui-focus",
+            "ui-contrast",
+            "ui-target"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "ui-overflow"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [
+                "ui-contrast"
+              ],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "ui-target"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "ui-focus"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [
+                "ui-token"
+              ],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [
+                "ux-name"
+              ],
+              "controls": []
+            }
+          ],
+          "ok": true,
+          "error": null,
+          "checkReview": true,
+          "cost": 0.1909,
+          "tokens": 117783,
+          "seconds": 37,
+          "model": "sonnet"
+        },
+        "ux": {
+          "verdict": "CHANGES",
+          "blocking": 9,
+          "matched": 6,
+          "precision": 0.6666666666666666,
+          "recall": 0.8571428571428571,
+          "found": [
+            "ux-name",
+            "ux-flow-test",
+            "ux-input",
+            "ux-error",
+            "ux-empty",
+            "ux-dialog-focus"
+          ],
+          "foundInLane": [
+            "ux-name",
+            "ux-error",
+            "ux-input",
+            "ux-dialog-focus",
+            "ux-flow-test",
+            "ux-empty"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "ux-name"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [
+                "ux-flow-test"
+              ],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "ux-input"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [
+                "ux-error"
+              ],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [
+                "ux-empty"
+              ],
+              "controls": []
+            },
+            {
+              "n": 7,
+              "defects": [
+                "ux-dialog-focus"
+              ],
+              "controls": []
+            },
+            {
+              "n": 8,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 9,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "ok": true,
+          "error": null,
+          "checkReview": true,
+          "cost": 0.1898,
+          "tokens": 118695,
+          "seconds": 42,
+          "model": "sonnet"
+        }
+      },
+      "combined": {
+        "found": [
+          "ui-overflow",
+          "ui-contrast",
+          "ui-target",
+          "ui-focus",
+          "ui-token",
+          "ux-name",
+          "ux-flow-test",
+          "ux-input",
+          "ux-error",
+          "ux-empty",
+          "ux-dialog-focus"
+        ],
+        "recall": 0.9166666666666666,
+        "byLane": {
+          "ui": 1,
+          "ux": 0.8571428571428571
+        }
+      },
+      "probe": {
+        "status": "ran",
+        "flagged": [
+          "ui-overflow",
+          "ui-focus",
+          "ui-contrast",
+          "ui-target",
+          "ux-name"
+        ],
+        "recall": 0.4166666666666667,
+        "byLane": {
+          "ui": 0.8,
+          "ux": 0.14285714285714285
+        }
+      },
+      "reviews": {
+        "ui": "VERDICT: CHANGES\n\n# UI design review — 001-orders-page, round 1\n\n## Summary\nThe orders page has five blocking UI defects: the table overflows at 320px, the secondary text fails contrast, the icon buttons are too small and have no focus indicator, and one literal colour is used where a token exists. The delete button also has no text alternative.\n\n## Blocking\n1. **Table forces sideways page scroll at 320px** — `styles/orders.css:36` (`.orders-table { min-width: 720px }`), F1, F13, `probe/orders-default-320-light.png`\n   Problem: the table is 736px wide inside `#orders`, which doesn't scroll, so the whole page scrolls sideways. The screenshot shows the Placed, Status, Total and Actions columns cut off. Reflow fails.\n   Required change: wrap the table in a container with `overflow-x: auto` so only the table scrolls inside its own box, or drop the `min-width` and let the layout reflow. Note that `#orders` is created in `orders.html`, and the table is rendered by `js/orders.js:49`.\n\n2. **Secondary text fails contrast** — `styles/orders.css:49` (`.order-meta { color: var(--color-disabled) }`), F5–F7, F17–F19\n   Problem: `#aab2ba` on `#fff` is 2.14:1 at 14px normal weight, and 4.5:1 is required. `--color-disabled` is meant for disabled controls, not for live text.\n   Required change: use `var(--color-muted)` (`#59636e`) or another token that reaches 4.5:1.\n\n3. **Icon buttons are below the minimum target size** — `styles/orders.css:68-71` (`.icon-btn` is 16×16 with a 2px margin), F8–F12, F20–F24\n   Problem: the buttons are 16×16px with about 20px of clear space. WCAG 2.2 requires targets of at least 24px or enough spacing.\n   Required change: set `.icon-btn` `width` and `height` (or `min-width` and `min-height`) to `var(--target-min)`, with padding so the 16px icon stays centred. Use a token such as `var(--space-1)` for the gap instead of the literal `2px`.\n\n4. **Icon buttons have no focus indicator** — `styles/orders.css:84-86` (`.icon-btn:focus { outline: none }`), W1–W6\n   Problem: the outline is removed and nothing replaces it. Probe tab stops 7–12 show no visible change on focus.\n   Required change: remove that rule, or replace it with `.icon-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }`, matching `.button` in `styles/app.css`.\n\n5. **Literal colour where a token exists** — `styles/orders.css:2` (`.orders-title { color: #333 }`)\n   Problem: this is a literal hex value, and `--color-text` is the token. In the screenshots the \"Orders\" `h1` is visibly lighter than the \"New order\" `h2` and the other headings.\n   Required change: delete the rule, or use `color: var(--color-text)`.\n\n6. **Delete icon button has no text alternative** — `js/orders.js:39`, F2–F4\n   Problem: the trash button holds only an `aria-hidden` SVG and has no `aria-label`, so it has no accessible name. The view button next to it has one.\n   Required change: add `aria-label=\"Delete order #${o.id}\"`.\n\n## Coverage\n- Read: `index.html`, `orders.html`, `styles/orders.css`, `js/orders.js` (markup and icons only), `tests/orders.test.js` (no UI surface). Also read `styles/tokens.css` and `styles/app.css` for context.\n- Not read: None.\n- Screens viewed: probe/orders-default-320-light.png, probe/orders-default-1280-light.png, probe/orders-state-empty-empty-320-light.png, probe/orders-state-empty-empty-1280-light.png, probe/orders-state-error-error-320-light.png, probe/orders-state-error-error-1280-light.png, probe/orders-order-1-details-dialog-320-light.png, probe/orders-order-1-details-dialog-1280-light.png\n\n## Probe findings\n- F1, F13 — blocking #1\n- F5–F7, F17–F19 — blocking #2\n- F8–F12, F20–F24 — blocking #3\n- W1–W6 — blocking #4\n- W9 — not a defect: the Close button is focused by `closeButton.focus()` (`js/orders.js:76`) before the probe measures it, so there is no change to see on the first Tab stop. `probe/orders-order-1-details-dialog-1280-light.png` shows the focus ring, which comes from `.button:focus-visible` at `styles/app.css:62` and is unchanged.\n- F2–F4, F14–F16 (ux lane, but the text-alternative rule is also in my lane) — blocking #6\n- W7, W8 — ux lane, answered by the UX reviewer.\n\n## Suggestions (non-blocking)\n- In the dialog, the `dd` elements keep the browser's default indent (visible at 320px). Consider setting `dd { margin: 0 }` and putting term and value on one line.\n- The empty and error messages are plain paragraphs. A visually distinct treatment for the error state would help it stand out.\n",
+        "ux": "VERDICT: CHANGES\n\n# UX review — 001-orders-page, round 1\n\n## Summary\nThe page works for the happy path, but Delete has no accessible name, AC3's test bypasses the UI, a rejected order wipes what the user typed, closing the dialog loses focus, and the empty and error states don't say what to do next. round.md lists no checks, so `tests/orders.test.js` was not run by any check on this commit (not the builder's fault; the approver should know).\n\n## Blocking\n1. **Delete button has no accessible name** — `js/orders.js:39`, probe F2–F4, F14–F16\n   Problem: the Delete icon button has an `aria-hidden` SVG and no text or `aria-label`. Screen-reader users hear \"button\", and the spec's step \"press **Delete** on order #1\" can't be found by name. The probe's Tab order shows stops 8, 10 and 12 as `button \"\"`.\n   Required change: give it `aria-label=\"Delete order #${o.id}\"`. The label should contain \"Delete\", matching the spec.\n2. **AC3 test doesn't drive the UI** — `tests/orders.test.js:29`\n   Problem: it calls `window.removeOrder(1)` through `page.evaluate`, never presses Delete, and so hides blocking #1. `window.removeOrder = removeOrder` (`js/orders.js:68`) exists only to allow this.\n   Required change: click `getByRole('button', { name: /Delete order #1|Delete/ })` for order #1, then assert row #1 is gone and the status reads \"Order removed.\". Remove the `window.removeOrder` global.\n3. **Rejected order loses what the user typed** — `js/orders.js:111`\n   Problem: `form.reset()` runs before the response is checked, so on a 422 or a network failure both fields are cleared. AC4 requires the typed input to be kept.\n   Required change: reset the form only after a successful add. Also move focus to the invalid field on a 422.\n4. **Error handling on add can throw or end silently** — `js/orders.js:113-116`\n   Problem: a non-422 failure (for example a 500) hits `res.json()` and `getElementById(`${field}-error`)`. A non-JSON body, or a response without `field`, throws an unhandled error and the user sees nothing.\n   Required change: if there is no known `field`, announce a plain message such as \"Couldn't add the order. Try again.\" in the status region.\n5. **Error state is bare and not announced** — `js/orders.js:26`, `probe/orders-state-error-error-1280-light.png`\n   Problem: the load failure shows only \"Something went wrong.\" The user isn't told what failed or how to recover, and `#orders` is not a live region. The caught error is swallowed. AC1 requires saying so and how to recover.\n   Required change: show text such as \"Couldn't load orders. Check your connection and reload the page.\" with a Try again button. Announce it through `#status` (`role=\"status\"`) or `role=\"alert\"`.\n6. **Empty state doesn't say what to do next** — `js/orders.js:46`, `probe/orders-state-empty-empty-1280-light.png`\n   Problem: \"No orders.\" gives no next step. AC1 requires it.\n   Required change: for example, \"No orders yet. Add one with the New order form above.\"\n7. **Focus isn't returned when the dialog closes** — `js/orders.js:80-82`\n   Problem: `closeDetails()` only sets `hidden`, so focus drops to the body. AC5 requires focus to go back to the View button that opened it. The deep-link case (`?order=`) has no opener, so focus should go to a sensible place such as the page heading.\n   Required change: store `document.activeElement` in `openDetails` and focus it in `closeDetails`. Add a test for Escape and Close that asserts focus returns to the **View order #1** button.\n8. **Delete is destructive with no confirmation or undo** — `js/orders.js:89`\n   Problem: one click removes the order, and it can't be recovered. After the row disappears, focus is lost to the body for keyboard users.\n   Required change: ask for confirmation that names the order (\"Delete order #1 for Ada Lovelace?\"), or offer an Undo. After removal, move focus to the next row's button or to the heading.\n9. **Flow tests don't cover the full criteria** — `tests/orders.test.js`\n   Problem: AC1 is tested for the default state only. The empty and error states in the spec's Screens table have no test that renders them (probe N-items were all visited, but no test covers these states).\n   Required change: add tests for `/orders?state=empty` and `/orders?state=error` that assert the messages from #5 and #6.\n\n## Flows\n| AC | Test | Drives the UI | Every step | Every Expect | Run by check |\n|---|---|---|---|---|---|\n| AC2 | `orders.test.js` \"AC2: adds an order\" | yes | yes | yes: row with Grace Hopper and \"Order added.\" | no: no checks configured, so it never ran on this commit |\n| AC3 | `orders.test.js` \"AC3: removes an order\" | no: `page.evaluate(() => window.removeOrder(1))` (`:29`) | no: Delete is never pressed | yes: row gone and \"Order removed.\" | no: no checks configured |\n| AC4 | manual | | | | |\n| AC5 | manual | | | | |\n\n## Coverage\n- Read: `orders.html`, `js/orders.js`, `tests/orders.test.js`, `index.html` (diff)\n- Not read: `styles/orders.css` (UI reviewer's lane)\n- Screens viewed: probe/orders-default-1280-light.png, probe/orders-state-empty-empty-1280-light.png, probe/orders-state-error-error-1280-light.png, probe/orders-order-1-details-dialog-1280-light.png\n\n## Probe findings\n- F2–F4, F14–F16 — blocking #1 (these are ux-lane failures; the ui-lane F-items belong to the UI reviewer)\n- W7, W8 — not a defect: the 500 is the deliberate response of `/orders?state=error`, the spec's error state (`serve.mjs`), and the page renders its error message.\n- No Unverified or Not visited items.\n- Tab order: the default screen's order follows the reading order (nav, form, then per-row view and delete); the Delete stops have empty names, covered by blocking #1. The dialog traps Tab on Close as its only control (`js/orders.js:97-99`), which is acceptable. Empty and error screens have a stop for every visible control.\n\n## Suggestions (non-blocking)\n- The details dialog shows only order, customer and total. Showing date, status and item count would make \"details\" more useful.\n- A `?order=<id>` that matches no order does nothing silently. Consider a status message.\n- Use a native `<dialog>` with `showModal()` to get Escape, focus trapping and focus return for free.\n"
+      },
+      "repo": null
+    }
+  ]
+}
