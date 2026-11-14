@@ -7,6 +7,10 @@
     "githubLabel": "factory"
   },
   "checks": {},
+  "worktree": {
+    "link": [],
+    "setup": ""
+  },
   "runner": {
     "headless": false,
     "harness": "claude-code",

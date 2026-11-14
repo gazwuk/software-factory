@@ -20,6 +20,7 @@ import {
   tryLock, unlock, updateJob, withLockAsync, writeJsonAtomic,
 } from './board.mjs';
 import { rebuildSummary, recordRun, refreshJob } from './usage.mjs';
+import { isReady } from './worktree.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ACTIVE = new Set(['spec', 'build', 'review', 'approval']);
@@ -84,7 +85,8 @@ export function readFacts(root, config, job) {
   const decision = readText(p.decision) ?? '';
   return {
     spec: existsSync(p.spec),
-    worktree: existsSync(p.worktree),
+    // Prepared too (worktree.mjs): links made and setup run.
+    worktree: existsSync(p.worktree) && isReady(p.worktree),
     head,
     ahead: head ? Number(gitTry(['rev-list', '--count', `${config.baseBranch}..${branch}`], root) || 0) : 0,
     build: build !== null,
@@ -267,16 +269,33 @@ async function perform(ctx, job, action, facts) {
       return;
     }
 
-    case 'worktree':
+    case 'worktree': {
       await ctx.git(() => {
         if (existsSync(p.worktree)) return; // added just before a restart
         gitTry(['worktree', 'prune'], root);
         if (facts.head) git(['worktree', 'add', p.worktree, `factory/${id}`], root);
         else git(['worktree', 'add', p.worktree, '-b', `factory/${id}`, base], root);
       });
+      // Links gitignored files and runs config.worktree.setup, which can be as heavy
+      // as the checks (an install), so it shares their limit.
+      const out = await ctx.checks(() => {
+        signal.throwIfAborted();
+        const step = begin(ctx, id, 'worktree setup', null, config.worktree?.setup || null);
+        let release = () => {};
+        return runNode(join(HERE, 'worktree.mjs'), [id], {
+          cwd: root, signal, onSpawn: (pid) => { release = track(ctx, id, pid); },
+        }).finally(() => { release(); step.end(); });
+      });
+      signal.throwIfAborted();
+      const prep = out.code === 0 ? JSON.parse(out.stdout.trim().split('\n').pop()) : null;
+      if (!prep?.ok) {
+        const why = prep?.error || out.stderr.trim().split('\n').pop() || `worktree.mjs exited ${out.code}`;
+        return needsHuman(ctx, id, `worktree setup failed: ${why}`);
+      }
       if (job.stage === 'spec') updateJob(root, id, { stage: 'build' });
-      ctx.log(id, `worktree ready on factory/${id}`);
+      ctx.log(id, `worktree ready on factory/${id}${prep.links.length ? `; linked ${prep.links.join(', ')}` : ''}${prep.setup ? `; setup took ${prep.setup.seconds}s` : ''}`);
       return;
+    }
 
     case 'build': {
       const { step } = action;

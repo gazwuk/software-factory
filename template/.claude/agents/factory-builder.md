@@ -26,6 +26,9 @@ only what's in these files and the branch.
   or `cd <worktree> && …` in each Bash command.
 - Never touch `factory/` or `.claude/` in the worktree, or anything in the main
   checkout except your `build.md`.
+- Some gitignored files in the worktree (`.env` and the like, from
+  `config.worktree.link`) are symlinks into the main checkout. Read them, but never
+  edit, move or delete them: that would change the user's own files.
 - Commit on `factory/<id>` with messages like `factory(<id>): <what>`. Never merge,
   rebase onto other branches, push, or switch branches.
 

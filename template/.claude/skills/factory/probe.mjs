@@ -20,6 +20,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepareWorktree, unlinkFiles } from './worktree.mjs';
 
 export const DEFAULTS = {
   serve: '',
@@ -499,16 +500,21 @@ function git(args, cwd) {
 }
 
 /**
- * A detached checkout of the merge base beside the job's worktree, sharing its
- * node_modules. Refused when the change touches dependency files, since the base
- * couldn't run on the branch's packages.
+ * A detached checkout of the merge base beside the job's worktree, prepared the same
+ * way (config.worktree: links and setup). With no setup command it borrows the
+ * worktree's node_modules instead, which is refused when the change touches
+ * dependency files, since the base couldn't run on the branch's packages.
  */
-function baseCheckout(root, id, worktree, mergeBase) {
-  const deps = git(['diff', '--name-only', mergeBase, 'HEAD'], worktree).split('\n').filter((f) => DEP_FILES.test(f));
-  if (deps.length) return { error: `the change touches ${deps.join(', ')}` };
+function baseCheckout(root, id, worktree, mergeBase, settings) {
+  if (!settings.setup) {
+    const deps = git(['diff', '--name-only', mergeBase, 'HEAD'], worktree).split('\n').filter((f) => DEP_FILES.test(f));
+    if (deps.length) return { error: `the change touches ${deps.join(', ')} and \`worktree.setup\` isn't set to install the base's packages` };
+  }
   const dir = join(root, '.factory-worktrees', `${id}.probe-base`);
   const modules = join(dir, 'node_modules');
+  let links = [];
   const cleanup = () => {
+    unlinkFiles(dir, links);
     try { if (lstatSync(modules).isSymbolicLink()) unlinkSync(modules); } catch { /* none */ }
     try { git(['worktree', 'remove', '--force', dir], root); } catch { rmSync(dir, { recursive: true, force: true }); }
   };
@@ -518,7 +524,15 @@ function baseCheckout(root, id, worktree, mergeBase) {
   } catch (err) {
     return { error: `couldn't check out the merge base: ${String(err.stderr || err.message).trim()}` };
   }
-  if (existsSync(join(worktree, 'node_modules')) && !existsSync(modules)) symlinkSync(join(worktree, 'node_modules'), modules, 'dir');
+  if (!settings.setup && existsSync(join(worktree, 'node_modules')) && !existsSync(modules)) {
+    symlinkSync(join(worktree, 'node_modules'), modules, 'dir');
+  }
+  const prep = prepareWorktree(root, dir, settings);
+  links = prep.links;
+  if (!prep.ok) {
+    cleanup();
+    return { error: `couldn't prepare the merge base: ${prep.error}` };
+  }
   return { dir, cleanup };
 }
 
@@ -608,7 +622,7 @@ export async function runProbe({ root, id, round = null, outDir = null }) {
     }
 
     // Something would block: run the same visits on the merge base to see if it's new.
-    const base = baseCheckout(root, id, worktree, mergeBase);
+    const base = baseCheckout(root, id, worktree, mergeBase, config.worktree || {});
     let baseRun = null;
     try {
       if (base.error) r.baseNote = `Couldn't compare with the merge base: ${base.error}.`;

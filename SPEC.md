@@ -70,6 +70,7 @@ Node >= 18.
     templates/reviewer.md            # scaffold for custom reviewers      [package]
     round.mjs                        # checks gate + reviewer selection   [package]
     probe.mjs                        # UI probe: renders and measures screens [package]
+    worktree.mjs                     # prepares new worktrees (links, setup) [package]
     usage.mjs                        # cost tracking (SubagentStop hook)  [package]
     board.mjs                        # locked board writes, job id claims [package]
     runner.mjs                       # headless runner                    [package]
@@ -122,6 +123,7 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
     "githubLabel": "factory"
   },
   "checks": { "test": "npm test", "lint": "npm run lint" },
+  "worktree": { "link": [".env.local"], "setup": "npm ci --prefer-offline" },
   "runner": {
     "headless": false,
     "harness": "claude-code",
@@ -162,6 +164,9 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
 - Each key in `reviewers` maps to `.claude/agents/factory-review-<key>.md`.
 - `checks`: name → shell command, run in the worktree by `round.mjs` before every
   review round. Written by `/factory setup`.
+- `worktree`: how a new worktree is made runnable (see **Worktrees and git**).
+  `link`: gitignored paths symlinked in from the main checkout; `setup`: a command
+  run once in it. Written by `/factory setup`, which asks before linking anything.
 - `reviewers.<key>.paths` (optional globs): the reviewer runs only when the change
   touches matching files. Absent = every change.
 - `reviewers.<key>.escalatePaths` + `escalateModel` (optional): use `escalateModel`
@@ -299,10 +304,12 @@ and UX reviewers' checklists into measurements.
   an error or not-found state), a page error, overflow, and serious or critical axe
   violations. Everything else is a warning for reviewers to judge.
 - **Only new failures block.** When the head has blocking findings, the probe checks
-  out the merge base beside the worktree (sharing its `node_modules`), serves it, and
-  repeats those visits. A finding the base has too is `pre-existing`. If the change
-  touches dependency files, or the base won't start, the findings are `unverified`:
-  reported, but not blocking. If the head won't start and the base does, that alone
+  out the merge base beside the worktree, prepares it like a job worktree
+  (`config.worktree`), serves it, and repeats those visits. A finding the base has
+  too is `pre-existing`. With no `worktree.setup`, the base borrows the worktree's
+  `node_modules` instead, so a change to dependency files can't be compared. If the
+  base can't be prepared or won't start, the findings are `unverified`: reported, but
+  not blocking. If the head won't start and the base does, that alone
   is a blocking failure.
 - **Output:** `probe.md` (failures, unverified, pre-existing, warnings, visits not
   made, a table of every visit with its screenshot, Tab orders), `probe.json` and
@@ -391,6 +398,15 @@ always matches the repo's skill and agents.
 
 - Builder works in `.factory-worktrees/<job-id>` on branch `factory/<job-id>`, created
   by the orchestrator from baseBranch. The user's own checkout is never switched.
+- A worktree holds only committed files. Right after creating one (new job, resume,
+  rework), the orchestrator or runner runs `worktree.mjs <job-id>`: it symlinks each
+  `config.worktree.link` path from the main checkout, runs `config.worktree.setup` in
+  the worktree, and writes a `factory-ready` marker in the worktree's private git
+  folder. The runner treats a worktree without the marker as missing, so a setup
+  killed part-way runs again. A link that isn't gitignored in the worktree is refused,
+  so secrets can't be committed from it; links are symlinks, so removing the worktree
+  leaves the originals. Failure → needs-human, `worktree setup failed: <reason>`. The
+  runner runs setup under the `maxParallelChecks` limit.
 - Reviewers read the diff and files from the worktree; they don't modify it.
 - On merge: orchestrator merges `factory/<job-id>` into baseBranch, then removes the
   worktree. If the user's tree has conflicting uncommitted changes, or the merge

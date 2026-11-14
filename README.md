@@ -181,6 +181,7 @@ out.
   skills/factory/reviewer-contract.md
   skills/factory/round.mjs       runs the checks and picks the reviewers each round
   skills/factory/probe.mjs       the UI probe: renders the change's screens and measures them
+  skills/factory/worktree.mjs    prepares new worktrees: links .env files, runs setup
   skills/factory/usage.mjs       records each agent's tokens and cost
   skills/factory/board.mjs       changes board.json under a lock; claims job ids
   skills/factory/runner.mjs      the headless runner
@@ -214,6 +215,7 @@ folder is committed as a record of what happened.
   "onApprove": "merge",
   "tasks": { "source": "backlog", "githubLabel": "factory" },
   "checks": { "test": "npm test", "lint": "npm run lint" },
+  "worktree": { "link": [".env.local"], "setup": "npm ci --prefer-offline" },
   "runner": { "headless": false, "harness": "claude-code", "parallel": 1,
               "maxParallelChecks": 1, "permissionMode": "dontAsk" },
   "ui": { "serve": "npm run dev -- --port {port}", "url": "http://localhost:{port}",
@@ -238,6 +240,11 @@ folder is committed as a record of what happened.
   labelled `tasks.githubLabel`). See [Giving it work](#giving-it-work).
 - `checks`: commands run in the worktree after every build, before any reviewer.
   `/factory setup` fills them in. See [Checks and reviewer selection](#checks-and-reviewer-selection).
+- `worktree`: jobs run in a fresh git worktree holding only committed files, so
+  anything gitignored the app or tests need is missing. `link` lists files to
+  symlink in from your checkout (`.env` files; each must be gitignored), and `setup`
+  is a command run once in each new worktree (install, codegen). `/factory setup`
+  proposes both and asks before linking anything.
 - `reviewers.<name>.paths`: run this reviewer only when the change touches files
   matching these globs. Leave it out to review every change.
 - `reviewers.<name>.escalatePaths` / `escalateModel`: use `escalateModel` instead of

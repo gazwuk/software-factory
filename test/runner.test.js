@@ -247,6 +247,34 @@ test('a killed runner resumes jobs from their files', async () => {
   assert.equal(readdirSync(join(dir, 'factory/jobs/001-add-gamma/usage')).length, 5, 'the killed builder left no record');
 });
 
+test('new worktrees get the linked files and setup command; a failing setup needs a human', async () => {
+  const dir = factoryRepo({
+    items: ['Add epsilon'],
+    config: { worktree: { link: ['.env'], setup: 'test -L .env && cat .env >> "$SETUP_OUT"' } },
+  });
+  writeFileSync(join(dir, '.env'), 'SECRET=1\n');
+  writeFileSync(join(dir, '.gitignore'), `${readFileSync(join(dir, '.gitignore'), 'utf8')}.env\n`);
+  execFileSync('git', ['commit', '-qam', 'ignore .env'], { cwd: dir, env: ENV });
+  const setupOut = join(dir, 'setup.out');
+  const { code, out } = await runCli(dir, ['run'], { SETUP_OUT: setupOut });
+  assert.equal(code, 0, out);
+  assert.equal(board(dir).jobs[0].stage, 'merged');
+  assert.equal(readFileSync(setupOut, 'utf8'), 'SECRET=1\n', 'setup ran once, in a worktree that had .env');
+  assert.match(out, /\[001-add-epsilon\] worktree ready on factory\/001-add-epsilon; linked \.env; setup took \d+s/);
+  assert.equal(readFileSync(join(dir, '.env'), 'utf8'), 'SECRET=1\n', 'removing the worktree left the original');
+
+  const cfg = JSON.parse(readFileSync(join(dir, 'factory/config.json'), 'utf8'));
+  cfg.worktree.setup = 'echo "lockfile out of date" >&2; exit 4';
+  writeFileSync(join(dir, 'factory/config.json'), JSON.stringify(cfg));
+  writeFileSync(join(dir, 'factory/backlog.md'), '# Backlog\n\n- [ ] Add zeta\n');
+  const failed = await runCli(dir, ['run']);
+  assert.equal(failed.code, 0, failed.out);
+  const zeta = board(dir).jobs.find((j) => j.id === '002-add-zeta');
+  assert.equal(zeta.stage, 'needs-human');
+  assert.match(zeta.note, /^worktree setup failed: .*failed \(exit 4\): lockfile out of date$/);
+  assert.equal(log(dir).filter((l) => l.agent === 'builder').length, 1, 'no builder ran in the broken worktree');
+});
+
 test('a review asking for changes gets a second round on the fix model', async () => {
   const dir = factoryRepo({ items: ['Add delta'] });
   const { code, out } = await runCli(dir, ['run'], { FAKE_CHANGES_ONCE: join(dir, 'changed') });

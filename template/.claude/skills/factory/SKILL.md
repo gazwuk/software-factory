@@ -29,6 +29,7 @@ agents **absolute** paths.
 | `.factory-worktrees/<id>/` | The builder's git worktree, on branch `factory/<id>`. |
 | `.claude/skills/factory/reviewer-contract.md` | Rules every reviewer follows. |
 | `.claude/skills/factory/round.mjs` | Runs the checks and picks the reviewers for a round. |
+| `.claude/skills/factory/worktree.mjs` | Prepares a new worktree: links gitignored files, runs `config.worktree.setup`. |
 | `.claude/skills/factory/probe.mjs` | The UI probe: serves the worktree and measures the spec's screens. round.mjs runs it. |
 | `.claude/skills/factory/usage.mjs` | Records each agent's tokens and cost (a SubagentStop hook runs it). |
 | `.claude/skills/factory/board.mjs` | Changes one job on board.json under a lock; claims job ids. |
@@ -218,8 +219,8 @@ Takes a request (text) and optionally an issue (number + URL).
    snapshot is fixed for the life of the job), `rounds` = `[]`, `issue`/`issueUrl`.
 3. **Spec.** Spawn `factory-spec-writer` with `request.md`, `project.md` and the job
    folder. It writes `spec.md`.
-4. **Worktree.** `git worktree add .factory-worktrees/<id> -b factory/<id> <baseBranch>`.
-   Stage `build`.
+4. **Worktree.** `git worktree add .factory-worktrees/<id> -b factory/<id> <baseBranch>`,
+   then prepare it (see **Preparing a worktree**). Stage `build`.
 5. **Build.** Spawn a builder (see Spawning agents) for the first build. It commits
    on the branch and writes `build.md`. Check that `build.md` exists and the branch has commits ahead of
    baseBranch (`git rev-list --count <base>..factory/<id>`); if not, treat as a
@@ -228,6 +229,16 @@ Takes a request (text) and optionally an issue (number + URL).
 
 Whenever a job with an `issue` changes to `needs-human`, comment on the issue (see
 **GitHub issues**).
+
+## Preparing a worktree
+
+A worktree holds only committed files, so whatever is gitignored (`.env` files,
+`node_modules`, generated code) is missing until it's prepared. Every time you create
+or recreate one, run `node <abs>/.claude/skills/factory/worktree.mjs <id>` from the
+repo root with the Bash tool's longest timeout (an install can be slow). It symlinks
+each `config.worktree.link` path from the main checkout, runs `config.worktree.setup`
+in the worktree, and prints one line of JSON. `"ok": false` → stage `needs-human`,
+note `worktree setup failed: <error>`.
 
 ## Review round N
 
@@ -436,9 +447,26 @@ Done by you directly, no agent. Re-runnable.
 5. Write `config.checks`: the test, lint and type-check commands from step 1, as
    `{ "test": "<command>", "lint": "<command>", "typecheck": "<command>" }`. Leave out
    any the repo doesn't have. They run from the worktree root without a terminal, so
-   use non-interactive forms (no watch mode). These and the UI probe (step 6) are
+   use non-interactive forms (no watch mode). These and the UI probe (step 7) are
    the only checks the factory runs between the builder and the reviewers.
-6. **Tune reviewer selection** in config:
+6. **Prepare worktrees.** Jobs run in a fresh worktree with only committed files.
+   Work out what the checks and the app need beyond that, and write `config.worktree`:
+   - `setup`: one non-interactive command that installs dependencies from the lock
+     file and generates anything the build needs (`npm ci --prefer-offline`,
+     `pnpm install --frozen-lockfile && pnpm prisma generate`, `uv sync`, …). Join
+     several with `&&`. Leave it empty if nothing is needed.
+   - `link`: gitignored files in the main checkout that the app or tests read, such
+     as `.env`, `.env.local` or `apps/web/.env`. Find them with
+     `git ls-files --others --ignored --exclude-standard` (skip `node_modules`, build
+     output and caches). These often hold secrets: show the user the exact list and
+     ask before adding any. They're symlinked, not copied, and a path that isn't
+     gitignored is refused, so it can't be committed from a worktree.
+   - Prove it: `git worktree add --detach .factory-worktrees/setup-check HEAD`, run
+     `node <abs>/.claude/skills/factory/worktree.mjs setup-check`, and run each
+     check in that worktree. Fix the config until they pass, and record the result
+     under Test status in project.md. Keep the worktree for step 7, then remove it
+     with `git worktree remove --force .factory-worktrees/setup-check`.
+7. **Tune reviewer selection** in config:
    - If the repo has no user interface, set `enabled: false` for `ux` and `ui` (say
      so; the user can re-enable them).
    - Otherwise set the `paths` of `ux` and `ui` to globs for where this repo's front
@@ -457,8 +485,8 @@ Done by you directly, no agent. Re-runnable.
      builder before the reviewers run. To set it up:
      - `ui.serve`: the command that serves the app, with `{port}` where the port
        goes (it's also in `PORT`), such as `npm run dev -- --port {port}`. It runs in
-       a fresh worktree, so it must work without a terminal and with only what's
-       committed plus `node_modules`. `ui.url` is where it answers.
+       a job's worktree, prepared as in step 6, without a terminal. `ui.url` is
+       where it answers.
      - `ui.themes`: `"light"` and `"dark"` set `prefers-color-scheme`. For a theme
        chosen another way, use `{ "name": "dark", "colorScheme": "dark", "init":
        "localStorage.theme = 'dark'" }`; `init` runs before the page's scripts.
@@ -468,11 +496,12 @@ Done by you directly, no agent. Re-runnable.
        (`npx playwright install chromium`). If they're missing, ask the user before
        adding them as dev dependencies. Without them the probe reports "skipped"
        and the reviewers work from the diff alone.
-     - Check it by starting `ui.serve` once with a free port and fetching `ui.url`.
+     - Check it by starting `ui.serve` in the `setup-check` worktree from step 6,
+       with a free port, and fetching `ui.url`.
      - No web UI, or the user declines: leave `ui.serve` empty.
-7. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
+8. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
    from issues labelled `<githubLabel>` by setting `tasks.source` to `"github"`.
-8. Show the user a short summary and suggest committing `.claude/` and `factory/`.
+9. Show the user a short summary and suggest committing `.claude/` and `factory/`.
 
 ## Status
 
@@ -492,7 +521,7 @@ Find the active job (stage `spec`, `build`, `review` or `approval`). Leave out a
 
 - `spec`: `spec.md` exists → step 4 of New job. Otherwise step 3.
 - `build`: worktree missing → recreate it from the existing branch
-  (`git worktree add .factory-worktrees/<id> factory/<id>`). If round is 0 and
+  (`git worktree add .factory-worktrees/<id> factory/<id>`) and prepare it. If round is 0 and
   `build.md` exists with commits ahead → review round 1. If round ≥ 1 and build.md has
   a `## Round <round> response` section → review round `round + 1`. Otherwise spawn
   a fresh builder for the current step.
@@ -518,7 +547,7 @@ active.
 2. If `decision.md` exists, move it to `round-N/decision.md` so history is kept.
 3. Set `roundLimit` = N + `config.maxRounds`, `decision` = null, clear `note`, stage
    `build`.
-4. Recreate the worktree if it's gone. Spawn a fresh builder on `config.models.builder`
+4. Recreate the worktree if it's gone, and prepare it. Spawn a fresh builder on `config.models.builder`
    (human feedback is often a real bug to track down, so not the fix model): "Rework:
    human feedback is in `<abs round-N>/human.md`; read `decision.md` and any
    `review-*.md` there too. Address it, commit, append a `## Round N response`
