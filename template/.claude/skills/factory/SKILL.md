@@ -427,7 +427,7 @@ Done by you directly, no agent. Re-runnable.
    ## Test status   (result of running the tests during setup)
    ## Layout        (where source, tests and config live)
    ## Conventions   (naming, style, patterns to follow, things to avoid)
-   ## Interface     (has UI: yes/no — what kind)
+   ## Interface     (has UI: yes/no — what kind; how to run it locally; e2e and component test tooling)
    ```
 
 5. Write `config.checks`: the test, lint and type-check commands from step 1, as

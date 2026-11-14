@@ -236,7 +236,7 @@ own output file. Every agent reads `factory/project.md`.
 
 | Agent | Reads | Writes |
 |---|---|---|
-| spec-writer | request.md, repo | `spec.md`: goal, scope, out of scope, numbered acceptance criteria |
+| spec-writer | request.md, repo | `spec.md`: goal, scope, out of scope, screens and their states, numbered acceptance criteria (user flows as `(flow)` steps) |
 | builder | spec.md, latest round folder (if any), rework note | code + tests in the worktree, commits on `factory/<job-id>`; `build.md`: what changed, how each acceptance criterion is met, test output |
 | reviewer-* | spec.md, build.md, round.md (checks + its diff range), worktree | `round-N/review-<name>.md`, first line `VERDICT: PASS` or `VERDICT: CHANGES`, then findings |
 | approver | everything in the job folder, diff, final round.md (re-runs checks only if the branch moved) | `decision.md`, first line `APPROVE` or `ESCALATE`, then reasoning |

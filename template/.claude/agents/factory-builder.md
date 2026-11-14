@@ -47,7 +47,10 @@ read narrowly:
 
 1. Read spec.md and project.md, then the code you'll change (see Reading code).
 2. Implement the scope — nothing more. Follow the repo's conventions.
-3. Write tests that cover every acceptance criterion.
+3. Write tests that cover every acceptance criterion. For a `(flow)` criterion, the
+   test drives its steps through the rendered UI, finds each control by the label
+   the step names, and asserts every `Expect:` line. Make each state in the spec's
+   **Screens** reachable the way it says.
 4. Run the project's test, lint and type-check commands from project.md. Fix what
    fails.
 5. Commit everything. Leave no uncommitted changes: the orchestrator re-runs the
