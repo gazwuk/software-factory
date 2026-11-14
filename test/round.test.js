@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { addedLines, globMatch, grepAdded, numberDiff, numberedDiff, parseChangedLines, prepareRound, selectReviewers, splitProblems, tryCheck } from '../template/.claude/skills/factory/round.mjs';
+import { addedLines, diffPath, globMatch, grepAdded, numberDiff, numberedDiff, parseChangedLines, prepareRound, selectReviewers, splitProblems, tryCheck } from '../template/.claude/skills/factory/round.mjs';
 
 const temps = [];
 after(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -351,6 +351,35 @@ test('addedLines numbers each added line by its place in the file', () => {
     { file: 'a.css', line: 6, text: '++ not a header' },
     { file: 'a.css', line: 7, text: 'b' },
   ]);
+});
+
+test('diffPath and addedLines read paths Git quotes or follows with a tab', () => {
+  assert.equal(diffPath('b/a.css'), 'b/a.css');
+  assert.equal(diffPath('b/my theme.css\t'), 'b/my theme.css');
+  assert.equal(diffPath('"b/caf\\303\\251.css"'), 'b/café.css');
+  assert.equal(diffPath('"b/say \\"hi\\"\\tnow.css"'), 'b/say "hi"\tnow.css');
+  const patch = [
+    'diff --git a/my theme.css b/my theme.css', '--- a/my theme.css\t', '+++ b/my theme.css\t', '@@ -1,0 +2 @@', '+x',
+    'diff --git "a/caf\\303\\251.css" "b/caf\\303\\251.css"', '--- "a/caf\\303\\251.css"', '+++ "b/caf\\303\\251.css"', '@@ -3,0 +4 @@', '+y',
+  ].join('\n');
+  assert.deepEqual(addedLines(patch), [
+    { file: 'my theme.css', line: 2, text: 'x' },
+    { file: 'café.css', line: 4, text: 'y' },
+  ]);
+});
+
+test('a lines gate fails on new problems in files whose names Git quotes', () => {
+  const gate = { command: 'node lint.mjs {files}', files: ['*.css'], scope: 'lines' };
+  const { root, commit } = jobRepo({ 'ui-tokens': gate }, {
+    'lint.mjs': LINT, 'my theme.css': 'a { color: #222; }\n', 'café.css': 'a { color: #222; }\n',
+  });
+  for (const file of ['my theme.css', 'café.css']) {
+    commit(file, 'a { color: #222; }\nb { color: #333; }\n');
+    const r = prepareRound(root, '001-x', 1);
+    assert.equal(r.ok, false, file);
+    assert.deepEqual(r.failed, ['ui-tokens']);
+    commit(file, 'a { color: #222; }\n');
+  }
 });
 
 test('grepAdded cites file lines, not positions in the diff, and round.md gives the command', () => {

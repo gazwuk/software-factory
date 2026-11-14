@@ -152,6 +152,23 @@ function tail(text) {
 
 // ---------- checks ----------
 
+const C_ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
+
+/**
+ * A path as a diff header prints it. Git C-quotes a path with unusual characters
+ * (`"b/caf\303\251.css"`) and puts a tab after one that has a space in it.
+ */
+export function diffPath(s) {
+  const path = s.replace(/\t$/, '');
+  if (!/^".*"$/.test(path)) return path;
+  const bytes = [];
+  for (const [, raw, esc] of path.slice(1, -1).matchAll(/([^\\]+)|\\([0-7]{3}|.)/gs)) {
+    if (raw) bytes.push(...Buffer.from(raw));
+    else bytes.push(/^[0-7]{3}$/.test(esc) ? parseInt(esc, 8) : C_ESCAPES[esc] ?? esc.charCodeAt(0));
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
 /**
  * The lines a `git diff -U0` adds, each as { file, line, text } with its line number
  * in the file's new version.
@@ -163,7 +180,8 @@ export function addedLines(patch) {
   let prev = '';
   for (const line of patch.split('\n')) {
     if (line.startsWith('+++ ') && prev.startsWith('--- ')) {
-      file = line.startsWith('+++ b/') ? line.slice(6) : null;
+      const to = diffPath(line.slice(4));
+      file = to.startsWith('b/') ? to.slice(2) : null;
     } else if (file && line.startsWith('@@ ')) {
       n = Number(/^@@ -\S+ \+(\d+)/.exec(line)?.[1] ?? 0);
     } else if (file && line.startsWith('+')) {
@@ -197,8 +215,8 @@ export function numberDiff(patch) {
     if (line.startsWith('diff --git ')) {
       n = null;
     } else if (n === null && line.startsWith('+++ ') && prev.startsWith('--- ')) {
-      const to = line.slice(4);
-      out.push('', to === '/dev/null' ? `=== ${prev.slice(4).replace(/^a\//, '')} (deleted)` : `=== ${to.replace(/^b\//, '')}`);
+      const to = diffPath(line.slice(4));
+      out.push('', to === '/dev/null' ? `=== ${diffPath(prev.slice(4)).replace(/^a\//, '')} (deleted)` : `=== ${to.replace(/^b\//, '')}`);
     } else if (line.startsWith('@@ ')) {
       n = Number(/^@@ -\S+ \+(\d+)/.exec(line)?.[1] ?? 0);
       out.push(`      ${line}`);
