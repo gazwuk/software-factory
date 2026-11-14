@@ -202,7 +202,7 @@ export function findingsOf(m, state) {
       out.push({ kind: 'focus-not-visible', level: 'warn', target: stop.selector, message: `no visible change when ${stop.role} "${stop.name}" has focus` });
     }
   }
-  if (m.tab?.trap) out.push({ kind: 'focus-trap', level: 'warn', target: m.tab.trap, message: 'Tab stays on this element' });
+  if (m.tab?.trap) out.push({ kind: 'focus-trap', level: 'warn', target: m.tab.trap, message: 'Tab stays on this element (a trap unless it\'s a modal dialog that Escape closes)' });
   return out;
 }
 

@@ -58,7 +58,9 @@ with them.
     blocking unless you can show they're expected (cite where).
 - **Tab order:** set each Tab order beside its screenshot. Blocking: a control you can
   see that has no stop; an order that jumps against the reading order; a stop whose
-  name is empty, or doesn't contain the control's visible label; a focus trap.
+  name is empty, or doesn't contain the control's visible label; a focus trap. Focus
+  that Tab keeps inside a modal dialog is not a trap when Escape or a control in the
+  dialog closes it (cite where).
 
 When the probe was skipped or didn't run, say so in the Summary and check the same
 things from the code: every state in the spec's Screens table needs a test that
