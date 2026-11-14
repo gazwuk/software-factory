@@ -265,8 +265,16 @@ note `worktree setup failed: <error>`.
    number, and its output path `round-N/review-<name>.md`.
 4. As each reviewer finishes, read its verdict and update the board.
 5. **WAIT FOR ALL.** When every reviewer in `run` has finished, check every file
-   exists with a valid verdict line. Re-spawn any that don't, once. Still missing →
-   stage `needs-human`, note `reviewer <name> produced no verdict in round N`.
+   exists with a valid verdict line. For each reviewer with `probe: true` in config,
+   also run `node <abs>/.claude/skills/factory/probe.mjs check-review <id> N <name>`:
+   it prints `{"ok": false, "missing": [...]}` when the review leaves out probe items
+   or screenshots it owes. Re-spawn any reviewer that fails either check, once; for
+   missing items, add to its prompt: "Your last review there left out <missing>.
+   Read it, answer each probe item under `## Probe findings`, view each screenshot
+   and list it under `## Coverage` (see the contract's Probe evidence rule), and
+   rewrite the file." Still failing → stage `needs-human`, note
+   `reviewer <name> produced no verdict in round N` or
+   `reviewer <name>'s review left out <missing> in round N`.
 6. Then, looking only at the reviewers that ran this round:
    - **Any CHANGES and N < roundLimit** → stage `build`. Spawn a fresh builder on the
      fix model: "Round N reviews are in `<abs round folder>`. Address every CHANGES
@@ -441,7 +449,8 @@ Done by you directly, no agent. Re-runnable.
    ## Test status   (result of running the tests during setup)
    ## Layout        (where source, tests and config live)
    ## Conventions   (naming, style, patterns to follow, things to avoid)
-   ## Interface     (has UI: yes/no — what kind; how to run it locally; e2e and component test tooling)
+   ## Interface     (has UI: yes/no — what kind; how to run it locally; e2e and component test tooling;
+                     where design tokens and shared components live; themes)
    ```
 
 5. Write `config.checks`: the test, lint and type-check commands from step 1, as

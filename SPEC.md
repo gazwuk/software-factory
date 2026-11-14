@@ -315,6 +315,22 @@ and UX reviewers' checklists into measurements.
   made, a table of every visit with its screenshot, Tab orders), `probe.json` and
   `probe/*.png`. With no round argument (the builder checking its own work) it writes
   to a temp folder.
+- **IDs and lanes:** each item in probe.md has an ID: `F` blocking, `U` unverified, `P`
+  pre-existing, `W` warning, `N` not visited, numbered in order. Each also has a lane
+  that names the reviewer who answers for it. `ux` covers whether the page works and
+  can be operated: load and status failures, page and console errors, failed
+  requests, focus traps, unvisited states, and axe rules in the keyboard,
+  name-role-value, forms and ARIA categories. `ui` covers everything else: overflow,
+  layout shift, focus visibility and the other axe rules (contrast, text
+  alternatives, structure, target size, …).
+- **Checking a review:** `probe.mjs check-review <id> <n> <reviewer>` (and
+  `checkReview()`) lists what a probe reviewer's review leaves out. It must answer
+  every U, W and N item in the lanes it owns under `## Probe findings`, and list
+  under `## Coverage` every screenshot it owes: all of them for the `ui` lane, and
+  the Tab-order visits for `ux`. A reviewer owns its own lane, plus any lane whose
+  reviewer isn't running this round. The runner counts a review with gaps as not
+  written: it re-runs the reviewer once, telling it what's missing, and then the job
+  goes to needs-human. The orchestrator does the same with the CLI.
 
 **Builder lifecycle:** a fresh builder for every step — first build, each check fix,
 each review round, each rework — never resumed with SendMessage. A resumed builder
@@ -325,9 +341,22 @@ Check and review fixes run on `models["builder-fix"]` (Sonnet by default); the f
 build and human rework on `models.builder`.
 
 **Reviewer contract:** the shared rules (inputs, read-only, blocking vs
-non-blocking, converge in later rounds, output format) live once in
-`reviewer-contract.md`. Each reviewer agent is just its focus checklist plus "read the
+non-blocking, converge in later rounds, cite evidence, probe evidence, output format)
+live once in `reviewer-contract.md`. Each reviewer agent is just its focus checklist plus "read the
 contract", so custom reviewers stay short and pick up contract fixes on `update`.
+
+**UI and UX reviewers** each have four parts:
+1. Probe evidence they must answer.
+2. Rules with numbers (WCAG 2.2 AA thresholds, for example contrast 4.5:1 and 3:1,
+   reflow at 320px, 24px targets, CLS ≤ 0.1), each with a way to check it from the
+   diff when the probe didn't run.
+3. Mechanical checks with grep commands (literal colours and sizes where tokens
+   exist, removed outlines, positive tabindex, click handlers on non-interactive
+   elements).
+4. Judgement, only where a screenshot or `file:line` can be cited.
+
+UX also fills a Flows table: each `(flow)` criterion's test, whether it drives the UI,
+covers every step and every `Expect:` line, and which check runs it.
 
 **Custom reviewers:** any `factory-review-<name>.md` that follows the contract and is
 listed in `config.reviewers`. At job start the orchestrator checks every enabled

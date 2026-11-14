@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { agentTools, nextAction, paths, prBody, prompts, reconcile } from '../template/.claude/skills/factory/runner.mjs';
+import { agentTools, nextAction, paths, prBody, prompts, readFacts, reconcile } from '../template/.claude/skills/factory/runner.mjs';
+import { checkReview } from '../template/.claude/skills/factory/probe.mjs';
 import { lockPath, tryLock, unlock } from '../template/.claude/skills/factory/board.mjs';
 import { describe, preflight } from '../template/.claude/skills/factory/harness/claude-code.mjs';
 import { jobOf, roundOf } from '../template/.claude/skills/factory/usage.mjs';
@@ -431,4 +432,42 @@ test('approve and rework refuse a job another process holds', async () => {
   } finally {
     unlock(lock);
   }
+});
+
+test('a probe reviewer whose review leaves out probe items counts as not having reviewed', () => {
+  const root = mkdtempSync(join(tmpdir(), 'factory-facts-'));
+  temps.push(root);
+  const roundDir = join(root, 'factory/jobs/001-x/round-1');
+  mkdirSync(roundDir, { recursive: true });
+  writeFileSync(join(root, 'factory/config.json'), JSON.stringify({
+    baseBranch: 'main', reviewers: { ui: { probe: true }, code: {} },
+  }));
+  writeFileSync(join(roundDir, 'round.json'), JSON.stringify({
+    round: 1, checks: { ok: true }, probe: { status: 'ran' },
+    reviewers: { ui: { run: true }, code: { run: true } },
+  }));
+  writeFileSync(join(roundDir, 'probe.json'), JSON.stringify({
+    status: 'ran', unreached: [],
+    visits: [{ key: '/|default|320|light', path: '/', state: 'default', width: 320, theme: { name: 'light' },
+      screenshot: 'probe/root-default-320-light.png', findings: [{ kind: 'overflow', level: 'warn', message: 'wide' }] }],
+  }));
+  writeFileSync(join(roundDir, 'review-code.md'), 'VERDICT: PASS\n');
+  const job = { id: '001-x', round: 1, reviewers: ['ui', 'code'] };
+  const review = (body) => writeFileSync(join(roundDir, 'review-ui.md'), `VERDICT: PASS\n# UI review\n\n${body}`);
+
+  review('## Coverage\n- Screens viewed: probe/root-default-320-light.png\n');
+  assert.deepEqual(readFacts(root, { baseBranch: 'main' }, job).reviews, { ui: null, code: 'PASS' });
+  assert.deepEqual(checkReview(root, '001-x', 1, 'ui'), { ok: false, missing: ['W1'] });
+  assert.deepEqual(checkReview(root, '001-x', 1, 'code'), { ok: true, missing: [] }, 'code has no probe lane');
+
+  review('## Probe findings\n- W1 — not a defect: the table scrolls in its own box\n\n## Coverage\n- Screens viewed: probe/root-default-320-light.png\n');
+  assert.equal(readFacts(root, { baseBranch: 'main' }, job).reviews.ui, 'PASS');
+});
+
+test('a reviewer run again for missing probe items is told which ones', () => {
+  const p = paths('/repo', { id: '001-x' });
+  const job = { id: '001-x', title: 'X' };
+  assert.doesNotMatch(prompts.reviewer(p, job, 'main', 'ui', 1), /left out/);
+  assert.match(prompts.reviewer(p, job, 'main', 'ui', 1, ['W2', 'probe/a.png']),
+    /Your last review there left out W2, probe\/a\.png\. .*## Probe findings.*## Coverage/s);
 });

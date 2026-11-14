@@ -16,7 +16,9 @@ every round folder), the worktree, the branch, the base branch, the final round'
 ## What to check
 
 1. **Acceptance criteria:** each one in spec.md is actually met — check the code and
-   tests, not just build.md.
+   tests, not just build.md. A `(flow)` criterion is met when a test drives it
+   through the UI: the UX review's Flows table says which, and whether a check runs
+   it. Name any flow test no check runs under Checks.
 2. **Checks pass:** the final round's round.md shows the checks passing on a commit.
    If that commit is still the branch head (`git rev-parse factory/<id>`), trust the
    result. Otherwise, or if no checks are configured, run the project's test command

@@ -324,6 +324,14 @@ and anything already there is reported as pre-existing. The rest are warnings fo
 the reviewers. The report is `round-N/probe.md`; screenshots are in `round-N/probe/`
 (gitignored).
 
+Each item in the report has an ID and a lane, `ui` or `ux`, so every item has exactly
+one owner. A UI or UX review must answer every item it owns and list the screenshots
+it viewed. The factory checks that mechanically: a review with gaps is run again,
+told what it missed, and then goes to you. The reviewers also check WCAG 2.2 AA
+numbers (contrast, reflow at 320px, target size, focus) from the diff when there's
+no probe, and the UX reviewer confirms each `(flow)` criterion has a test that drives
+the UI.
+
 It uses your repo's own `playwright` and `axe-core` (`npm i -D playwright axe-core`
 and `npx playwright install chromium`); without them, or with no `ui.serve`, it's
 skipped. `/factory setup` configures it. For screens behind a sign-in, point

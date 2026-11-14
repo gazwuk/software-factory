@@ -4,6 +4,7 @@
 // rather than a diff.
 //
 //   node .claude/skills/factory/probe.mjs <job-id> [round]
+//   node .claude/skills/factory/probe.mjs check-review <job-id> <round> <reviewer>
 //
 // With a round (how round.mjs runs it) it writes factory/jobs/<id>/round-<N>/probe.md,
 // probe.json and probe/*.png. Without one (the builder, before committing) it writes
@@ -104,6 +105,13 @@ export function planVisits(rows, ui) {
 
 const where = (v) => `\`${v.path}\` (${v.state}) ${v.width}px ${v.theme.name}`;
 
+// Which reviewer owns a finding: ux for whether the page works and can be operated,
+// ui for how it looks. axe rules split by their category tag.
+export const LANES = ['ui', 'ux'];
+const UX_KINDS = new Set(['app-start', 'load-failed', 'http-status', 'page-error', 'console-error', 'request-failed', 'focus-trap']);
+const UX_AXE = new Set(['cat.keyboard', 'cat.name-role-value', 'cat.forms', 'cat.aria']);
+export const laneOf = (f) => ((f.kind === 'axe' ? (f.cats || []).some((c) => UX_AXE.has(c)) : UX_KINDS.has(f.kind)) ? 'ux' : 'ui');
+
 /** What identifies a finding across the head and base runs of the same visit. */
 export const fingerprint = (f) => [f.kind, f.rule || '', f.target || '', f.kind === 'page-error' ? f.message : ''].join('|');
 
@@ -163,7 +171,7 @@ export function findingsOf(m, state) {
   for (const v of m.axe || []) {
     for (const node of v.nodes) {
       out.push({
-        kind: 'axe', rule: v.id, impact: v.impact, target: node.target,
+        kind: 'axe', rule: v.id, impact: v.impact, cats: v.cats, target: node.target,
         level: v.impact === 'serious' || v.impact === 'critical' ? 'fail' : 'warn',
         message: v.help, detail: node.summary, help: v.helpUrl,
       });
@@ -201,13 +209,36 @@ function grouped(visits, pick) {
   return [...groups.values()];
 }
 
-function findingTable(groups) {
-  const out = ['| # | Screen | Where | What | Detail |', '|---|---|---|---|---|'];
-  groups.forEach(({ f, v, at }, i) => {
+const SECTIONS = [
+  { prefix: 'F', heading: 'Failures (block the round)', pick: (f) => f.level === 'fail' && f.origin === 'new',
+    note: 'Introduced by this change: the merge base doesn\'t have them.' },
+  { prefix: 'U', heading: 'Unverified', pick: (f) => f.origin === 'unverified',
+    note: 'Would block, but the probe couldn\'t compare with the merge base, so they don\'t. Check each one.' },
+  { prefix: 'P', heading: 'Pre-existing', pick: (f) => f.origin === 'pre-existing',
+    note: 'The merge base has these too, so they don\'t block.' },
+  { prefix: 'W', heading: 'Warnings', pick: (f) => f.level === 'warn', note: 'Measured, not blocking: reviewers judge them.' },
+];
+
+/**
+ * probe.md's items, numbered per section: F (blocking), U (unverified), P
+ * (pre-existing), W (warnings), N (screens not visited). Each has a lane.
+ */
+export function numbered(r) {
+  const items = [];
+  for (const s of SECTIONS) {
+    grouped(r.visits, s.pick).forEach((g, i) => items.push({ id: `${s.prefix}${i + 1}`, section: s.prefix, lane: laneOf(g.f), ...g }));
+  }
+  (r.unreached || []).forEach((u, i) => items.push({ id: `N${i + 1}`, section: 'N', lane: 'ux', u }));
+  return items;
+}
+
+function findingTable(items) {
+  const out = ['| ID | Lane | Screen | Where | What | Detail |', '|---|---|---|---|---|---|'];
+  for (const { id, lane, f, v, at } of items) {
     const what = f.kind === 'axe' ? `axe \`${f.rule}\` (${f.impact})` : f.kind;
     const detail = [f.message, f.target && `\`${f.target}\``, f.detail].filter(Boolean).join(' — ');
-    out.push(`| ${i + 1} | \`${v.path}\` (${v.state}) | ${at.join(', ')} | ${what} | ${cell(detail)} |`);
-  });
+    out.push(`| ${id} | ${lane} | \`${v.path}\` (${v.state}) | ${at.join(', ')} | ${what} | ${cell(detail)} |`);
+  }
   return out;
 }
 
@@ -222,25 +253,18 @@ export function renderProbe(r) {
   const t = tally(r.visits);
   out.push(`**Result:** ${t.failures ? `${t.failures} new failure(s) — the round is blocked until they're fixed` : 'no new failures'}; ${t.warnings} warning(s)${t.preExisting ? `; ${t.preExisting} pre-existing` : ''}${t.unverified ? `; ${t.unverified} unverified` : ''}.`, '');
   if (r.baseNote) out.push(r.baseNote, '');
+  out.push('IDs are for reviews to cite. Lane says which reviewer answers for the item: `ui` (how it looks) or `ux` (whether it works).', '');
 
-  const sections = [
-    ['Failures (block the round)', (f) => f.level === 'fail' && f.origin === 'new',
-      'Introduced by this change: the merge base doesn\'t have them.'],
-    ['Unverified', (f) => f.origin === 'unverified',
-      'Would block, but the probe couldn\'t compare with the merge base, so they don\'t. Check each one.'],
-    ['Pre-existing', (f) => f.origin === 'pre-existing',
-      'The merge base has these too, so they don\'t block.'],
-    ['Warnings', (f) => f.level === 'warn', 'Measured, not blocking: reviewers judge them.'],
-  ];
-  for (const [heading, pick, note] of sections) {
-    const groups = grouped(r.visits, pick);
-    if (!groups.length) continue;
-    out.push(`## ${heading}`, '', note, '', ...findingTable(groups), '');
+  const items = numbered(r);
+  for (const s of SECTIONS) {
+    const mine = items.filter((x) => x.section === s.prefix);
+    if (mine.length) out.push(`## ${s.heading}`, '', s.note, '', ...findingTable(mine), '');
   }
 
-  if (r.unreached.length || r.dropped) {
-    out.push('## Not visited', '');
-    for (const u of r.unreached) out.push(`- ${u.screen} (${u.state}): ${u.reason}`);
+  const unreached = items.filter((x) => x.section === 'N');
+  if (unreached.length || r.dropped) {
+    out.push('## Not visited', '', 'States the probe couldn\'t open. Each needs a test that renders it.', '');
+    for (const { id, lane, u } of unreached) out.push(`- ${id} (${lane}): ${u.screen} (${u.state}): ${u.reason}`);
     if (r.dropped) out.push(`- ${r.dropped} more visit(s) over \`ui.maxVisits\``);
     out.push('');
   }
@@ -263,6 +287,50 @@ export function renderProbe(r) {
     out.push('', end, '');
   }
   return out.join('\n');
+}
+
+// ---------- checking a review ----------
+
+function section(markdown, heading) {
+  const m = new RegExp(`^## ${heading}[^\n]*\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, 'm').exec(markdown);
+  return m ? m[1] : '';
+}
+
+/**
+ * What a probe reviewer's review leaves out. It answers every U, W and N item in the
+ * lanes it owns under `## Probe findings`, and lists the screenshots it viewed under
+ * `## Coverage`: all of them for the ui lane, the Tab-order visits for ux. A lane
+ * whose reviewer isn't running this round falls to the probe reviewers that are.
+ */
+export function reviewGaps({ probe, review, name, running }) {
+  if (probe?.status !== 'ran') return [];
+  const lanes = LANES.filter((l) => l === name || !running.includes(l));
+  if (!lanes.length) return [];
+  const answered = section(review, 'Probe findings');
+  const ids = numbered(probe)
+    .filter((x) => ['U', 'W', 'N'].includes(x.section) && lanes.includes(x.lane))
+    .map((x) => x.id)
+    .filter((id) => !new RegExp(`(^|[^A-Za-z0-9])${id}(?![0-9])`).test(answered));
+  const viewed = section(review, 'Coverage');
+  const shots = probe.visits
+    .filter((v) => v.screenshot && (lanes.includes('ui') || (lanes.includes('ux') && v.tab)))
+    .map((v) => v.screenshot)
+    .filter((shot) => !viewed.includes(shot.split('/').pop()));
+  return [...ids, ...shots];
+}
+
+/** reviewGaps for reviewer `name` in round n of a job, from the files. */
+export function checkReview(root, id, n, name) {
+  const config = readJson(join(root, 'factory/config.json')) || {};
+  if (!config.reviewers?.[name]?.probe) return { ok: true, missing: [] };
+  const roundDir = join(root, 'factory/jobs', id, `round-${n}`);
+  const round = readJson(join(roundDir, 'round.json'));
+  const probe = round?.probe?.status === 'ran' ? readJson(join(roundDir, 'probe.json')) : null;
+  let review = '';
+  try { review = readFileSync(join(roundDir, `review-${name}.md`), 'utf8'); } catch { /* none yet */ }
+  const running = Object.entries(round?.reviewers || {}).filter(([k, r]) => r.run && config.reviewers?.[k]?.probe).map(([k]) => k);
+  const missing = reviewGaps({ probe, review, name, running });
+  return { ok: !missing.length, missing };
 }
 
 // ---------- in the page ----------
@@ -359,7 +427,7 @@ function readFocus() {
 async function runAxe([tags, nodes]) {
   const result = await window.axe.run(document, { runOnly: { type: 'tag', values: tags }, resultTypes: ['violations'] });
   return result.violations.map((v) => ({
-    id: v.id, impact: v.impact, help: v.help, helpUrl: v.helpUrl,
+    id: v.id, impact: v.impact, help: v.help, helpUrl: v.helpUrl, cats: v.tags.filter((t) => t.startsWith('cat.')),
     nodes: v.nodes.slice(0, nodes).map((n) => ({ target: n.target.join(' '), summary: (n.failureSummary || '').split('\n').map((l) => l.trim()).filter((l) => l && !/^Fix (any|all) of the following:$/.test(l)).slice(0, 2).join(' ') })),
   }));
 }
@@ -653,6 +721,16 @@ export async function runProbe({ root, id, round = null, outDir = null }) {
 }
 
 function main() {
+  if (process.argv[2] === 'check-review') {
+    const [id, n, name] = process.argv.slice(3);
+    if (!id || !Number.isInteger(Number(n)) || !name) {
+      console.error('Usage: node probe.mjs check-review <job-id> <round> <reviewer>');
+      process.exit(2);
+    }
+    const root = git(['rev-parse', '--show-toplevel'], dirname(fileURLToPath(import.meta.url)));
+    console.log(JSON.stringify(checkReview(root, id, Number(n), name)));
+    return;
+  }
   const [id, raw] = process.argv.slice(2);
   const round = raw === undefined ? null : Number(raw);
   if (!id || (round !== null && (!Number.isInteger(round) || round < 1))) {

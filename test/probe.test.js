@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULTS, compareWithBase, findingsOf, parseScreens, planVisits, renderProbe, tally } from '../template/.claude/skills/factory/probe.mjs';
+import { DEFAULTS, compareWithBase, findingsOf, laneOf, numbered, parseScreens, planVisits, renderProbe, reviewGaps, tally } from '../template/.claude/skills/factory/probe.mjs';
 
 const SPEC = `# Billing
 
@@ -111,8 +111,57 @@ test('renderProbe reports skips and groups findings by screen', () => {
   });
   assert.match(md, /\*\*Result:\*\* 1 new failure\(s\)/);
   assert.match(md, /## Failures \(block the round\)/);
-  assert.match(md, /\| 1 \| `\/a` \(default\) \| 320px light, 768px light \| overflow \| too wide — `table` \|/);
-  assert.match(md, /- \/a \(loading\): no URL/);
+  assert.match(md, /\| F1 \| ui \| `\/a` \(default\) \| 320px light, 768px light \| overflow \| too wide — `table` \|/);
+  assert.match(md, /- N1 \(ux\): \/a \(loading\): no URL/);
   assert.match(md, /1\. button "Go" `button` — \*\*focus not visible\*\*/);
   assert.doesNotMatch(md, /## Warnings/);
+});
+
+test('laneOf gives looks to ui and whether it works to ux', () => {
+  assert.equal(laneOf({ kind: 'overflow' }), 'ui');
+  assert.equal(laneOf({ kind: 'focus-not-visible' }), 'ui');
+  assert.equal(laneOf({ kind: 'console-error' }), 'ux');
+  assert.equal(laneOf({ kind: 'focus-trap' }), 'ux');
+  assert.equal(laneOf({ kind: 'axe', rule: 'color-contrast', cats: ['cat.color'] }), 'ui');
+  assert.equal(laneOf({ kind: 'axe', rule: 'target-size', cats: ['cat.sensory-and-visual-cues'] }), 'ui');
+  assert.equal(laneOf({ kind: 'axe', rule: 'button-name', cats: ['cat.name-role-value'] }), 'ux');
+  assert.equal(laneOf({ kind: 'axe', rule: 'label', cats: ['cat.forms'] }), 'ux');
+});
+
+function probeRun() {
+  const shot = (v) => `probe/a-${v.state}-${v.width}-light.png`;
+  const visits = [
+    { ...visitWith('/a|default|320|light', [
+      { kind: 'overflow', level: 'fail', origin: 'unverified', target: 't', message: 'wide' },
+      { kind: 'layout-shift', level: 'warn', message: 'CLS 0.2' },
+      { kind: 'console-error', level: 'warn', message: 'boom' },
+    ]) },
+    { ...visitWith('/a|default|1280|light', [{ kind: 'console-error', level: 'warn', message: 'boom' }]), tab: { stops: [] } },
+  ];
+  for (const v of visits) v.screenshot = shot(v);
+  return { status: 'ran', visits, unreached: [{ screen: '/a', state: 'error', reason: 'no URL' }] };
+}
+
+test('numbered gives each probe item a stable ID and lane', () => {
+  assert.deepEqual(numbered(probeRun()).map((x) => `${x.id} ${x.lane}`), ['U1 ui', 'W1 ui', 'W2 ux', 'N1 ux']);
+});
+
+test('reviewGaps lists the probe items and screenshots a review leaves out', () => {
+  const probe = probeRun();
+  const both = ['ui', 'ux'];
+  const ui = [
+    '# UI review', '', '## Probe findings', '- U1 — blocking #1', '', '## Coverage',
+    '- Screens viewed: probe/a-default-320-light.png', '',
+  ].join('\n');
+  assert.deepEqual(reviewGaps({ probe, review: ui, name: 'ui', running: both }), ['W1', 'probe/a-default-1280-light.png']);
+  // IDs count only under Probe findings; W10 doesn't answer W1.
+  assert.deepEqual(reviewGaps({ probe, review: ui.replace('U1 —', 'W10, U1 —') + '\nW1 mentioned elsewhere', name: 'ui', running: both })[0], 'W1');
+
+  // ux answers its own items and only views the Tab-order screenshots.
+  const ux = '## Probe findings\n- W2 — not a defect: dev-only warning\n- N1 — covered by `a.test.tsx` "shows the error"\n\n## Coverage\n- a-default-1280-light.png\n';
+  assert.deepEqual(reviewGaps({ probe, review: ux, name: 'ux', running: both }), []);
+  // With ux skipped this round, ui owns its lane too.
+  assert.deepEqual(reviewGaps({ probe, review: '', name: 'ui', running: ['ui'] }).slice(0, 4), ['U1', 'W1', 'W2', 'N1']);
+  // Nothing is owed when the probe didn't run.
+  assert.deepEqual(reviewGaps({ probe: { status: 'skipped' }, review: '', name: 'ui', running: both }), []);
 });
