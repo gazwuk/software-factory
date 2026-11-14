@@ -25,6 +25,7 @@ agents **absolute** paths.
 | `factory/project.md` | Repo profile. Every agent reads it. |
 | `factory/board.json` | Durable state; drives the dashboard. Change it only with board.mjs. |
 | `factory/backlog.md` | Task queue when `config.tasks.source` is `"backlog"`. |
+| `factory/lint/` | Config for the static UI gates (see **Setup**), when the repo has them. |
 | `factory/jobs/<id>/` | Job folder: `request.md`, `spec.md`, `build.md`, `round-N/`, `decision.md`. Always in the main checkout, never in a worktree. |
 | `.factory-worktrees/<id>/` | The builder's git worktree, on branch `factory/<id>`. |
 | `.claude/skills/factory/reviewer-contract.md` | Rules every reviewer follows. |
@@ -450,14 +451,16 @@ Done by you directly, no agent. Re-runnable.
    ## Layout        (where source, tests and config live)
    ## Conventions   (naming, style, patterns to follow, things to avoid)
    ## Interface     (has UI: yes/no — what kind; how to run it locally; e2e and component test tooling;
-                     where design tokens and shared components live; themes)
+                     where design tokens and shared components live; themes; static UI gates
+                     and what each covers)
    ```
 
 5. Write `config.checks`: the test, lint and type-check commands from step 1, as
    `{ "test": "<command>", "lint": "<command>", "typecheck": "<command>" }`. Leave out
    any the repo doesn't have. They run from the worktree root without a terminal, so
-   use non-interactive forms (no watch mode). These and the UI probe (step 7) are
-   the only checks the factory runs between the builder and the reviewers.
+   use non-interactive forms (no watch mode). These, the static UI gates (step 8)
+   and the UI probe (step 7) are the only checks the factory runs between the
+   builder and the reviewers.
 6. **Prepare worktrees.** Jobs run in a fresh worktree with only committed files.
    Work out what the checks and the app need beyond that, and write `config.worktree`:
    - `setup`: one non-interactive command that installs dependencies from the lock
@@ -473,8 +476,8 @@ Done by you directly, no agent. Re-runnable.
    - Prove it: `git worktree add --detach .factory-worktrees/setup-check HEAD`, run
      `node <abs>/.claude/skills/factory/worktree.mjs setup-check`, and run each
      check in that worktree. Fix the config until they pass, and record the result
-     under Test status in project.md. Keep the worktree for step 7, then remove it
-     with `git worktree remove --force .factory-worktrees/setup-check`.
+     under Test status in project.md. Keep the worktree for steps 7 and 8, then
+     remove it with `git worktree remove --force .factory-worktrees/setup-check`.
 7. **Tune reviewer selection** in config:
    - If the repo has no user interface, set `enabled: false` for `ux` and `ui` (say
      so; the user can re-enable them).
@@ -508,9 +511,85 @@ Done by you directly, no agent. Re-runnable.
      - Check it by starting `ui.serve` in the `setup-check` worktree from step 6,
        with a free port, and fetching `ui.url`.
      - No web UI, or the user declines: leave `ui.serve` empty.
-8. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
+8. **Static UI gates** (repos with a UI). Linters catch some UI rules before any
+   model or browser does: a literal colour where a token exists, a click handler on a
+   `<div>`, an image with no `alt`. A gate is a check that sees only the change:
+
+   ```json
+   "ui-tokens": { "command": "npx stylelint --config factory/lint/stylelint.json --allow-empty-input {files}",
+                  "files": ["*.{css,scss}"], "scope": "lines" },
+   "ui-a11y":   { "command": "npx eslint --config factory/lint/eslint.config.mjs --no-warn-ignored {files}",
+                  "files": ["*.{jsx,tsx}"], "scope": "lines" }
+   ```
+
+   round.mjs replaces `{files}` with the changed files that match `files`, and skips
+   the gate when there are none. With `scope: "lines"` it reads the `path:line`
+   locations in the output (eslint's and stylelint's default formats, or `unix`) and
+   fails only on problems on lines the change added or changed, so problems already
+   in the repo never block a job. A failure reaches the builder like any other check.
+   Use these names, so the UI and UX reviewers know what's covered.
+   - **Design tokens (`ui-tokens`):** when the repo has design tokens (CSS custom
+     properties, or Sass or Less variables) and uses stylelint (a dependency, a
+     `.stylelintrc*` or a `stylelint.config.*`), propose
+     `stylelint-declaration-strict-value`. Gate only the properties the repo has
+     tokens for: colours, `font-size`, `z-index`, spacing. Write
+     `factory/lint/stylelint.json` with that one rule. Don't extend the repo's
+     config, or the gate repeats the lint check, but copy its `customSyntax` and
+     `overrides` so it parses the same files:
+
+     ```json
+     {
+       "plugins": ["stylelint-declaration-strict-value"],
+       "rules": {
+         "scale-unlimited/declaration-strict-value": [
+           ["/color$/", "font-size", "z-index", "/^(margin|padding|gap)/"],
+           { "ignoreFunctions": false,
+             "ignoreValues": ["inherit", "initial", "unset", "currentcolor", "transparent",
+                              "none", "auto", "0", "/var\\(--/"] }
+         ]
+       }
+     }
+     ```
+
+     `ignoreFunctions: false` catches `rgb()` and `hsl()` literals, and the last
+     `ignoreValues` entry lets functions built on tokens (`calc(var(--space-2) * 2)`)
+     through.
+   - **Accessibility (`ui-a11y`):** the plugin that fits the stack, at its
+     `recommended` rules, in `factory/lint/eslint.config.mjs` (match the repo's
+     ESLint version and parser, such as `typescript-eslint` for `.tsx`).
+     React/JSX: `eslint-plugin-jsx-a11y` (`jsxA11y.flatConfigs.recommended`). Vue:
+     `eslint-plugin-vuejs-accessibility`, files `*.vue`. Svelte:
+     `eslint-plugin-svelte`'s `svelte/valid-compile` rule, which reports the
+     compiler's a11y warnings per file. `svelte-check --fail-on-warnings` checks the
+     whole project and can't be scoped, so use it only as a plain string check, and
+     only if it passes on baseBranch today.
+   - **Already there:** if the repo's own lint config already has these rules and
+     step 5 put its command in `checks`, add no gate.
+   - **Ask first.** Show the user the dev dependencies you'd add
+     (`npm i -D stylelint-declaration-strict-value`, …) and the files you'd write,
+     and install or write nothing until they say yes. Declined → no gate.
+   - **Prove each gate** in the `setup-check` worktree. Copy the changed
+     `package.json`, the lock file and `factory/lint/` into it and run
+     `config.worktree.setup` there. Then
+     `node <abs>/.claude/skills/factory/round.mjs check <name> .factory-worktrees/setup-check HEAD`
+     runs the gate as a round would, on the worktree's uncommitted work, and prints
+     JSON. Check all three:
+     1. With only those copied files changed, it's skipped (`files` doesn't match).
+     2. Add a line that breaks the rule, such as `color: #333;` where a colour token
+        exists or `<div onClick={f}>`, to a file that already has problems if there
+        is one. It fails, and `output` lists only that line.
+     3. Change that line to use the token, or a `<button>`. It passes, and `note`
+        counts the older problems it ignored.
+
+     `checkout` the edited files afterwards.
+   - Record the gates in project.md's Interface: each gate's name, the rules or
+     properties it enforces, and the files it covers. Also record a repo lint
+     check that already has these rules.
+9. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
    from issues labelled `<githubLabel>` by setting `tasks.source` to `"github"`.
-9. Show the user a short summary and suggest committing `.claude/` and `factory/`.
+10. Show the user a short summary and suggest committing `.claude/` and `factory/`
+    (and any dev dependencies step 8 added). Jobs branch from baseBranch, so a gate
+    works only once its config and plugins are committed there.
 
 ## Status
 

@@ -82,6 +82,7 @@ renders it.
   them. No positive `tabindex`. No click handler on a non-interactive element without
   a role and key handling:
   `git -C <worktree> diff <range> -U0 | grep -nE '^\+.*(tabindex="?[1-9]|<(div|span|li|td)[^>]*onClick)'`
+  (skip the grep for files a passing `ui-a11y` gate covers; see below).
 - **Names and labels:** every control's accessible name contains its visible label.
   Every input has a label; field errors are tied to their field (for example with
   `aria-describedby`).
@@ -92,6 +93,14 @@ renders it.
   names, codes or jargon in anything a user reads.
 
 `<range>` is your diff range from round.md (`<since> <head>`).
+
+**Static gates.** project.md's Interface lists the repo's UI gates and what each
+covers. A `ui-a11y` gate that passed in round.md (passed or skipped, not failed) has
+already checked every line the change adds to its files for positive `tabindex`,
+click handlers on non-interactive elements, missing `alt`, unlabelled inputs and
+invalid ARIA roles. Don't grep for those in its files again. The gate can't see a
+problem the change causes on a line it didn't touch (removing a `<label>`, say), or
+whether a name matches its visible label, so read for those.
 
 ## 4. Judgement
 

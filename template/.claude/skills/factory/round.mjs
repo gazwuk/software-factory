@@ -8,9 +8,14 @@
 // (state the next round reads), then prints one line of JSON for the orchestrator.
 // When a selected reviewer has `probe: true`, it also runs probe.mjs, whose new
 // failures block the round like a failed check.
+//
+//   node .claude/skills/factory/round.mjs check <name> <worktree> [<base>]
+//
+// runs one check the way a round would, on the worktree as it is (uncommitted work
+// included), and prints its result as JSON. Setup and the builder use it.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const TAIL_LINES = 15;
@@ -135,21 +140,156 @@ function tail(text) {
   return all.slice(-TAIL_LINES).join('\n');
 }
 
-function runChecks(checks, cwd) {
-  return Object.entries(checks).map(([name, command]) => {
-    const started = Date.now();
-    const r = spawnSync(command, {
-      cwd, shell: true, encoding: 'utf8', maxBuffer: 64 << 20,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, CI: process.env.CI || 'true' },
-    });
-    return {
-      name, command,
-      exit: r.status ?? 1,
-      seconds: Math.round((Date.now() - started) / 1000),
-      output: tail([r.stdout, r.stderr, r.error?.message].filter(Boolean).join('\n')),
-    };
+// ---------- checks ----------
+
+/**
+ * The line numbers of each file's added or changed lines, in its new version, from
+ * `git diff -U0` output.
+ */
+export function parseChangedLines(patch) {
+  const out = new Map();
+  let file = null;
+  let prev = '';
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('+++ ') && prev.startsWith('--- ')) {
+      file = line.startsWith('+++ b/') ? line.slice(6) : null;
+      if (file && !out.has(file)) out.set(file, new Set());
+    } else if (file && line.startsWith('@@ ')) {
+      const m = line.match(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/);
+      if (m) {
+        const start = Number(m[1]);
+        const count = m[2] === undefined ? 1 : Number(m[2]);
+        for (let i = 0; i < count; i++) out.get(file).add(start + i);
+      }
+    }
+    prev = line;
+  }
+  return out;
+}
+
+/**
+ * What the work in a worktree changes compared with `base`: the files it adds or
+ * changes (deleted ones left out), and each file's changed lines (`true` for an
+ * untracked file, where every line is new). Uncommitted work counts, so the builder
+ * can run a check before committing; a round only runs on a clean worktree.
+ */
+export function changeIn(cwd, base) {
+  const nul = (text) => text.split('\0').filter(Boolean);
+  const tracked = nul(git(['diff', '-z', '--name-only', '-M', '--diff-filter=d', base], cwd));
+  const untracked = nul(git(['ls-files', '-z', '--others', '--exclude-standard'], cwd));
+  const lines = parseChangedLines(git(['diff', '-U0', '-M', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', base], cwd));
+  for (const f of untracked) lines.set(f, true);
+  return { files: [...tracked, ...untracked], lines };
+}
+
+/**
+ * Splits a linter's output into the problems on lines the change added or changed
+ * and the rest. Reads two layouts: `path:line:col: message` per line (`unix`
+ * formatters), and a line holding just a path followed by indented `line:col ...`
+ * lines (eslint's default `stylish`, stylelint's default `string`). Returns null if
+ * no line names a file in the worktree, so there's no telling which problems are new.
+ */
+export function splitProblems(output, cwd, lines) {
+  const root = realpathSync(cwd);
+  const inWorktree = (path) => {
+    const abs = resolve(cwd, path);
+    if (!existsSync(abs)) return null;
+    const file = relative(root, realpathSync(abs)).split(sep).join('/');
+    return file && !file.startsWith('..') ? file : null;
+  };
+  const found = { added: [], older: [] };
+  const add = (file, line, text) => {
+    const changed = lines.get(file);
+    (changed === true || changed?.has(line) ? found.added : found.older).push(text);
+  };
+  let any = false;
+  let current = null;
+  for (const raw of output.split('\n')) {
+    const text = raw.replace(/\x1b\[[0-9;]*m/g, '').trimEnd();
+    const unix = text.match(/^(\S.*?):(\d+)(?::\d+)?:\s/);
+    const unixFile = unix && inWorktree(unix[1]);
+    if (unixFile) {
+      any = true;
+      add(unixFile, Number(unix[2]), text);
+      continue;
+    }
+    const indented = current && text.match(/^\s+(\d+):\d+\s/);
+    if (indented) {
+      any = true;
+      add(current, Number(indented[1]), `${current}:${text.trim().replace(/\s{3,}/g, '  ')}`);
+    } else if (/^\S/.test(text)) {
+      current = inWorktree(text);
+    }
+  }
+  return any ? found : null;
+}
+
+const shellQuote = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Runs one check in cwd. A check is a shell command, or a gate that sees only the
+ * change: `{ command, files, scope }`. A gate's `{files}` becomes the changed files
+ * matching its `files` globs (every changed file without them), and it's skipped when
+ * there are none. With `scope: "lines"`, it fails only on problems on lines the change
+ * added or changed, so problems already in those files don't block.
+ * `change()` returns changeIn() for the work under review.
+ */
+export function runCheck(name, spec, cwd, change) {
+  const gate = typeof spec === 'object' && spec !== null;
+  const template = gate ? spec.command : spec;
+  let command = template;
+  if (gate) {
+    const { files } = change();
+    const covered = Array.isArray(spec.files) ? matching(spec.files, files) : files;
+    if (!covered.length) return { name, command: template, exit: 0, seconds: 0, skipped: true, note: 'no changed files it covers', output: '' };
+    command = template.replaceAll('{files}', covered.map(shellQuote).join(' '));
+  }
+
+  const started = Date.now();
+  const r = spawnSync(command, {
+    cwd, shell: true, encoding: 'utf8', maxBuffer: 64 << 20,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, CI: process.env.CI || 'true' },
   });
+  const result = { name, command: template, exit: r.status ?? 1, seconds: Math.round((Date.now() - started) / 1000) };
+  const output = [r.stdout, r.stderr, r.error?.message].filter(Boolean).join('\n');
+
+  if (gate && spec.scope === 'lines' && result.exit !== 0) {
+    const problems = splitProblems(output, cwd, change().lines);
+    if (!problems) {
+      result.note = 'no file:line locations in its output, so every problem counts';
+    } else if (!problems.added.length) {
+      result.exit = 0;
+      result.note = `${plural(problems.older.length, 'older problem')} on lines the change didn't touch`;
+      return { ...result, output: '' };
+    } else {
+      result.note = `${plural(problems.added.length, 'problem')} on changed lines; ${problems.older.length} older ignored`;
+      return { ...result, output: tail(problems.added.join('\n')) };
+    }
+  }
+  return { ...result, output: tail(output) };
+}
+
+function runChecks(checks, cwd, base) {
+  let change = null;
+  const changed = () => (change ??= changeIn(cwd, base));
+  return Object.entries(checks).map(([name, spec]) => runCheck(name, spec, cwd, changed));
+}
+
+/**
+ * Runs one of config.checks in a worktree, as a round would, against the merge base
+ * of its HEAD and `base` (config.baseBranch by default).
+ */
+export function tryCheck(root, name, worktree, base) {
+  const config = readJson(join(root, 'factory/config.json'));
+  if (!config) throw new Error('factory/config.json is missing or not valid JSON');
+  const spec = config.checks?.[name];
+  if (!spec) throw new Error(`config.checks has no check named "${name}"`);
+  const mergeBase = git(['merge-base', base || config.baseBranch, 'HEAD'], worktree);
+  let change = null;
+  const result = runCheck(name, spec, worktree, () => (change ??= changeIn(worktree, mergeBase)));
+  return { ok: result.exit === 0, ...result };
 }
 
 /** Runs probe.mjs as a child process and returns its summary. */
@@ -184,6 +324,12 @@ function renderProbeSection(probe) {
   return out;
 }
 
+function checkResult(c) {
+  if (c.skipped) return `skipped: ${c.note}`;
+  const result = c.exit === 0 ? 'passed' : `failed (exit ${c.exit})`;
+  return `${c.note ? `${result}: ${c.note}` : result}, ${c.seconds}s`;
+}
+
 function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat, probe }) {
   const out = [`# Round ${n} — ${id}`, ''];
   out.push(`Commit under review: \`${sha}\` on \`factory/${id}\` (base \`${base}\`, merge base \`${mergeBase}\`).`, '');
@@ -197,7 +343,7 @@ function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, rev
     const failed = checks.filter((c) => c.exit !== 0).map((c) => c.name);
     out.push(failed.length ? `**Failed:** ${failed.join(', ')}.` : 'All passed on this commit. Don\'t re-run them.', '');
     out.push('| Check | Command | Result |', '|---|---|---|');
-    for (const c of checks) out.push(`| ${c.name} | \`${c.command}\` | ${c.exit === 0 ? 'passed' : `failed (exit ${c.exit})`}, ${c.seconds}s |`);
+    for (const c of checks) out.push(`| ${c.name} | \`${c.command}\` | ${checkResult(c)} |`);
     for (const c of checks) {
       if (c.output) out.push('', `### ${c.name}`, '', '```', c.output, '```');
     }
@@ -244,7 +390,7 @@ export function prepareRound(root, id, n, { probe: runProbe = probeProcess } = {
   mkdirSync(roundDir, { recursive: true });
 
   const dirty = git(['status', '--porcelain'], worktree);
-  const checks = dirty ? [] : runChecks(config.checks || {}, worktree);
+  const checks = dirty ? [] : runChecks(config.checks || {}, worktree, mergeBase);
   const failed = checks.filter((c) => c.exit !== 0).map((c) => c.name);
   let ok = !dirty && !failed.length;
 
@@ -308,15 +454,27 @@ export function prepareRound(root, id, n, { probe: runProbe = probeProcess } = {
 }
 
 function main() {
-  const [id, raw] = process.argv.slice(2);
-  const n = Number(raw);
-  if (!id || !Number.isInteger(n) || n < 1) {
-    console.error('Usage: node round.mjs <job-id> <round>');
-    process.exit(2);
+  const args = process.argv.slice(2);
+  let run;
+  if (args[0] === 'check') {
+    const [, name, worktree, base] = args;
+    if (!name || !worktree) {
+      console.error('Usage: node round.mjs check <name> <worktree> [<base>]');
+      process.exit(2);
+    }
+    run = (root) => tryCheck(root, name, resolve(worktree), base);
+  } else {
+    const [id, raw] = args;
+    const n = Number(raw);
+    if (!id || !Number.isInteger(n) || n < 1) {
+      console.error('Usage: node round.mjs <job-id> <round>');
+      process.exit(2);
+    }
+    run = (root) => prepareRound(root, id, n);
   }
   try {
     const root = git(['rev-parse', '--show-toplevel'], dirname(fileURLToPath(import.meta.url)));
-    console.log(JSON.stringify(prepareRound(root, id, n)));
+    console.log(JSON.stringify(run(root)));
   } catch (err) {
     console.error(`round.mjs: ${(err.stderr || err.message || String(err)).toString().trim()}`);
     process.exit(1);

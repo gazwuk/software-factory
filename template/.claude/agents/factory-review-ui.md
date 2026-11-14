@@ -54,8 +54,18 @@ git -C <worktree> diff <range> -U0 | grep -nE '^\+.*outline(-style)?:\s*(none|0)
 ## 3. Design system
 
 project.md's Interface and Conventions say where design tokens (colours, spacing,
-type, radii, shadows, z-index) and shared components live. List the literal values
-the change adds:
+type, radii, shadows, z-index) and shared components live.
+
+**Static gates.** project.md's Interface lists the repo's UI gates and what each
+covers. A `ui-tokens` gate that passed in round.md (passed or skipped, not failed)
+has already checked every line the change adds to its files for literal values in
+the properties it lists. Don't repeat that: run the grep below only for what it
+doesn't cover, such as other properties, other files (inline `style` props, CSS-in-JS,
+Tailwind arbitrary values like `text-[#333]`), or every file when there's no gate.
+A passing `ui-a11y` gate has likewise checked that new images in its files have
+`alt`.
+
+List the literal values the change adds:
 
 ```
 git -C <worktree> diff <range> -U0 | grep -nE '^\+.*(#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|[0-9.]+(px|rem|em)\b|z-index:\s*[0-9])'

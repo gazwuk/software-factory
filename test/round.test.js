@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { globMatch, prepareRound, selectReviewers } from '../template/.claude/skills/factory/round.mjs';
+import { globMatch, parseChangedLines, prepareRound, selectReviewers, splitProblems, tryCheck } from '../template/.claude/skills/factory/round.mjs';
 
 const temps = [];
 after(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -113,12 +113,13 @@ test('a missing verdict counts as needing a re-run', () => {
 
 // ---------- prepareRound against a real repo ----------
 
-function jobRepo(checks) {
+function jobRepo(checks, baseFiles = {}) {
   const root = mkdtempSync(join(tmpdir(), 'factory-round-'));
   temps.push(root);
   const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root, stdio: 'pipe' }).toString().trim();
   git('init', '-q', '-b', 'main');
   writeFileSync(join(root, 'README.md'), '# test\n');
+  for (const [file, text] of Object.entries(baseFiles)) writeFileSync(join(root, file), text);
   writeFileSync(join(root, '.gitignore'), 'factory/\n.factory-worktrees/\n');
   git('add', '.');
   git('commit', '-qm', 'init');
@@ -224,4 +225,109 @@ test('the UI probe runs for probe reviewers, and its new failures block the roun
   const skippedMd = readFileSync(join(jobDir, 'round-1/round.md'), 'utf8');
   assert.match(skippedMd, /Skipped: no ui\.serve\. Review from the diff\./);
   assert.match(skippedMd, /No checks configured/);
+});
+
+test('parseChangedLines lists the added and changed lines of each file', () => {
+  const patch = [
+    'diff --git a/a.css b/a.css', '--- a/a.css', '+++ b/a.css',
+    '@@ -2 +2 @@', '-x', '+y',
+    '@@ -5,0 +6,3 @@', '+++ not a header', '+b', '+c',
+    'diff --git a/gone.css b/gone.css', '--- a/gone.css', '+++ /dev/null', '@@ -1 +0,0 @@', '-z',
+    'diff --git a/new.css b/new.css', '--- /dev/null', '+++ b/new.css', '@@ -0,0 +1,2 @@', '+p', '+q',
+  ].join('\n');
+  const lines = parseChangedLines(patch);
+  assert.deepEqual([...lines.keys()], ['a.css', 'new.css']);
+  assert.deepEqual([...lines.get('a.css')], [2, 6, 7, 8]);
+  assert.deepEqual([...lines.get('new.css')], [1, 2]);
+});
+
+// A stand-in for stylelint's unix format: one `path:line:col: message` per literal
+// colour, with absolute paths as eslint prints them.
+const LINT = `import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+let found = 0;
+for (const f of process.argv.slice(2)) {
+  readFileSync(f, 'utf8').split('\\n').forEach((text, i) => {
+    if (/#[0-9a-f]{3}/.test(text)) { found++; console.log(\`\${resolve(f)}:\${i + 1}:3: literal colour\`); }
+  });
+}
+process.exit(found ? 1 : 0);
+`;
+
+test('a UI gate sees only the changed files and fails only on lines the change touched', () => {
+  const gate = { command: 'node lint.mjs {files}', files: ['*.css'], scope: 'lines' };
+  const { root, wt, commit, jobDir } = jobRepo({ 'ui-tokens': gate }, {
+    'lint.mjs': LINT,
+    'old.css': 'a {\n  color: #333;\n}\n',
+    'my theme.css': 'b { color: #222; }\n',
+  });
+  const md = () => readFileSync(join(jobDir, 'round-1/round.md'), 'utf8');
+
+  // No stylesheet changed: the gate is skipped, and passes.
+  commit('api.js', 'x\n');
+  assert.equal(prepareRound(root, '001-x', 1).ok, true);
+  assert.match(md(), /\| ui-tokens \| `node lint\.mjs \{files\}` \| skipped: no changed files it covers \|/);
+
+  // A token added to files with older literals (one with a space in its name): passes.
+  commit('old.css', 'a {\n  color: #333;\n  background: var(--bg);\n}\n');
+  commit('my theme.css', 'b { color: #222; }\nc { color: var(--fg); }\n');
+  assert.equal(prepareRound(root, '001-x', 1).ok, true);
+  assert.match(md(), /passed: 2 older problems on lines the change didn't touch/);
+
+  // A literal colour on a new line fails the gate; the builder sees only that line.
+  commit('old.css', 'a {\n  color: #333;\n  border-color: #444;\n}\n');
+  const failed = prepareRound(root, '001-x', 1);
+  assert.equal(failed.ok, false);
+  assert.deepEqual(failed.failed, ['ui-tokens']);
+  assert.match(md(), /failed \(exit 1\): 1 problem on changed lines; 2 older ignored/);
+  assert.match(md(), /old\.css:3:3: literal colour/);
+  assert.doesNotMatch(md(), /old\.css:2:/);
+
+  // Before committing, `round.mjs check` sees uncommitted and untracked work too.
+  commit('old.css', 'a {\n  color: #333;\n}\n');
+  assert.equal(tryCheck(root, 'ui-tokens', wt).ok, true);
+  writeFileSync(join(wt, 'new.css'), 'd { color: #555; }\n');
+  const tried = tryCheck(root, 'ui-tokens', wt);
+  assert.equal(tried.ok, false);
+  assert.match(tried.output, /new\.css:1:3: literal colour/);
+  assert.throws(() => tryCheck(root, 'nope', wt), /no check named "nope"/);
+});
+
+test('a lines gate whose output has no locations fails on any problem', () => {
+  const { root, commit, jobDir } = jobRepo({ 'ui-a11y': { command: 'echo broken config; exit 2', scope: 'lines' } });
+  commit('app.css', 'a{}\n');
+  const r = prepareRound(root, '001-x', 1);
+  assert.deepEqual(r.failed, ['ui-a11y']);
+  assert.match(readFileSync(join(jobDir, 'round-1/round.md'), 'utf8'), /failed \(exit 2\): no file:line locations in its output, so every problem counts/);
+});
+
+test('splitProblems reads unix and stylish layouts, with colour codes', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'factory-split-'));
+  temps.push(dir);
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src/App.jsx'), '');
+  writeFileSync(join(dir, 'src/a.css'), '');
+  const output = [
+    join(dir, 'src/App.jsx'),
+    '  4:7  error  Visible, non-interactive elements with click handlers      jsx-a11y/click-events-have-key-events',
+    '  9:1  error  img elements must have an alt prop  jsx-a11y/alt-text',
+    '',
+    '\x1b[4msrc/a.css\x1b[24m',
+    '  \x1b[2m2:3\x1b[22m  ✖  Expected variable for "#333"',
+    '',
+    'src/a.css:5:1: Expected variable for "#444" [error]',
+    'nowhere.css:1:1: not a file in the worktree',
+    '✖ 4 problems (4 errors, 0 warnings)',
+    '  2 errors potentially fixable with the "--fix" option.',
+  ].join('\n');
+  const lines = new Map([['src/App.jsx', new Set([9])], ['src/a.css', new Set([2, 5])]]);
+  assert.deepEqual(splitProblems(output, dir, lines), {
+    added: [
+      'src/App.jsx:9:1  error  img elements must have an alt prop  jsx-a11y/alt-text',
+      'src/a.css:2:3  ✖  Expected variable for "#333"',
+      'src/a.css:5:1: Expected variable for "#444" [error]',
+    ],
+    older: ['src/App.jsx:4:7  error  Visible, non-interactive elements with click handlers  jsx-a11y/click-events-have-key-events'],
+  });
+  assert.equal(splitProblems('Error: Could not find config file.', dir, lines), null);
 });

@@ -55,7 +55,11 @@ read narrowly:
    the step names, and asserts every `Expect:` line. Make each state in the spec's
    **Screens** reachable the way it says.
 4. Run the project's test, lint and type-check commands from project.md. Fix what
-   fails. If spec.md has **Screens** and `factory/config.json` sets `ui.serve`, also
+   fails. Entries in `factory/config.json` `checks` that are objects (such as
+   `ui-tokens` and `ui-a11y`) are gates that lint only your change. Run each with
+   `node <repo root>/.claude/skills/factory/round.mjs check <name> <worktree>`,
+   which runs it as the round will (uncommitted work included), and fix every
+   problem in its `output`. If spec.md has **Screens** and `factory/config.json` sets `ui.serve`, also
    run the UI probe: `node <repo root>/.claude/skills/factory/probe.mjs <job id>`.
    It prints the path of its report; fix every failure listed there. The same probe
    runs before the reviewers, and its failures send the job back to you.

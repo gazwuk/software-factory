@@ -163,7 +163,8 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
   orchestrator passes the model when spawning each agent.
 - Each key in `reviewers` maps to `.claude/agents/factory-review-<key>.md`.
 - `checks`: name → shell command, run in the worktree by `round.mjs` before every
-  review round. Written by `/factory setup`.
+  review round. Written by `/factory setup`. A check can instead be a gate that sees
+  only the change, `{ "command", "files", "scope" }` (see **Static UI gates**).
 - `worktree`: how a new worktree is made runnable (see **Worktrees and git**).
   `link`: gitignored paths symlinked in from the main checkout; `setup`: a command
   run once in it. Written by `/factory setup`, which asks before linking anything.
@@ -199,7 +200,7 @@ feature
 
 | Command | Does |
 |---|---|
-| `/factory setup` | Inspect the repo; write `project.md` (language, test/lint/typecheck commands, conventions, has-UI?); write `checks`; disable ux/ui if there's no UI, else tune their `paths` and security's `escalatePaths`. Re-runnable. |
+| `/factory setup` | Inspect the repo; write `project.md` (language, test/lint/typecheck commands, conventions, has-UI?); write `checks`; disable ux/ui if there's no UI, else tune their `paths` and security's `escalatePaths`; propose static UI gates (asks before installing). Re-runnable. |
 | `/factory <feature>` | Start a new job now. |
 | `/factory backlog <feature>` | Shape the text into a well-formed task (asks up to 3 questions, proposes a split if too big) and queue it. Doesn't start a job. |
 | `/factory backlog` | List the queue. |
@@ -266,9 +267,10 @@ Every agent replies to the orchestrator with one line; the detail is in its file
 
 **Round preparation (`round.mjs`):** deterministic, no model. Per round it:
 
-1. Refuses a dirty worktree, then runs `config.checks` in it on the branch head.
-   Failures go back to the builder (the stage stays `review`, no round is used up);
-   after two failed fixes the job goes to needs-human.
+1. Refuses a dirty worktree, then runs `config.checks` in it on the branch head
+   (gates on the change's files only, see **Static UI gates**). Failures go back to
+   the builder (the stage stays `review`, no round is used up); after two failed
+   fixes the job goes to needs-human.
 2. For each of the job's reviewers, finds the commit it last passed at (`since`; the
    merge base if never), carried through rounds where it was skipped.
 3. Selects it if its last verdict was CHANGES or missing, or if files matching its
@@ -280,6 +282,37 @@ Every agent replies to the orchestrator with one line; the detail is in its file
 6. Writes `round.md` (results, selection table with reasons, a `git diff <since> <head>`
    per selected reviewer, diff stat, the probe's result) and `round.json`, and prints a
    one-line JSON summary.
+
+**Static UI gates:** checks in `config.checks` that lint only what the change
+touches, so a rule can be switched on without fixing the whole repo first.
+
+- **Shape:** `{ "command": "npx eslint -c factory/lint/eslint.config.mjs {files}",
+  "files": ["*.{jsx,tsx}"], "scope": "lines" }`. `{files}` becomes the files changed
+  since the merge base (deleted ones left out) that match `files` (all of them
+  without it), shell-quoted. No matching files → the gate is skipped and passes.
+- **`scope: "lines"`:** when the command fails, round.mjs reads the problem
+  locations in its output: `path:line[:col]: …` lines (`unix` formatters), or a line
+  holding a path followed by indented `line:col …` lines (eslint's `stylish`,
+  stylelint's `string`). Only problems on lines the change added or changed (by
+  `git diff -U0`; every line of a new file) fail it, and round.md shows only those.
+  Older ones are counted in the result's note. Output with no locations at all fails
+  as it is. Without `scope`, any failure fails.
+- **Trying one:** `round.mjs check <name> <worktree> [<base>]` (and `tryCheck()`)
+  runs one check as a round would, on the worktree including uncommitted and
+  untracked work, against the merge base with `base` (baseBranch by default), and
+  prints its result as JSON. Setup proves gates with it, and the builder runs gates
+  with it before committing.
+- **Which:** `/factory setup` proposes, and installs only if the user says yes,
+  `ui-tokens` (`stylelint-declaration-strict-value` for the properties the repo has
+  design tokens for) and `ui-a11y` (`eslint-plugin-jsx-a11y`,
+  `eslint-plugin-vuejs-accessibility`, or `eslint-plugin-svelte`'s
+  `svelte/valid-compile`), with their configs in `factory/lint/`. It proves each in
+  the `setup-check` worktree: skipped with no matching change, fails on one new
+  literal colour or `<div onClick>`, passes when that line uses the token, with older
+  problems ignored. project.md's Interface records each gate and what it covers.
+- **Limit:** a problem the change causes on a line it didn't touch (removing a
+  `<label>` leaves its input unlabelled) isn't caught. The reviewers still read for
+  those.
 
 **UI probe (`probe.mjs`):** deterministic, no model; web UIs only. It turns the UI
 and UX reviewers' checklists into measurements.
@@ -352,7 +385,8 @@ contract", so custom reviewers stay short and pick up contract fixes on `update`
    diff when the probe didn't run.
 3. Mechanical checks with grep commands (literal colours and sizes where tokens
    exist, removed outlines, positive tabindex, click handlers on non-interactive
-   elements).
+   elements). They skip what a passing `ui-tokens` or `ui-a11y` gate already
+   covers, as project.md's Interface records it.
 4. Judgement, only where a screenshot or `file:line` can be cited.
 
 UX also fills a Flows table: each `(flow)` criterion's test, whether it drives the UI,

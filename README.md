@@ -240,6 +240,7 @@ folder is committed as a record of what happened.
   labelled `tasks.githubLabel`). See [Giving it work](#giving-it-work).
 - `checks`: commands run in the worktree after every build, before any reviewer.
   `/factory setup` fills them in. See [Checks and reviewer selection](#checks-and-reviewer-selection).
+  A check can also be a gate that lints only the change; see [Static UI gates](#static-ui-gates).
 - `worktree`: jobs run in a fresh git worktree holding only committed files, so
   anything gitignored the app or tests need is missing. `link` lists files to
   symlink in from your checkout (`.env` files; each must be gitignored), and `setup`
@@ -285,6 +286,39 @@ dashboard). Globs: `**` spans folders, `*` stays within one, `{a,b}` is either, 
 glob without `/` matches a file name anywhere (`package.json`, `*.css`). The default
 `ux` and `ui` paths are generic front-end locations, and `/factory setup` adjusts them
 to your repo.
+
+### Static UI gates
+
+Some UI rules don't need a model or a browser: a linter can catch a hard-coded colour
+where a design token exists, or a `<div onClick>` with no role. For a repo with a UI,
+`/factory setup` proposes two gates and adds them to `checks`, so they fail like any
+other check and the builder fixes them before a reviewer looks:
+
+- `ui-tokens`: [`stylelint-declaration-strict-value`](https://github.com/AndyOGo/stylelint-declaration-strict-value)
+  for colours, font sizes, z-index and spacing, when the repo uses stylelint and has
+  tokens.
+- `ui-a11y`: `eslint-plugin-jsx-a11y` (React), `eslint-plugin-vuejs-accessibility`
+  (Vue) or `eslint-plugin-svelte`'s compiler a11y warnings (Svelte): names, labels,
+  alt text, interactive roles, positive `tabindex`.
+
+It asks before installing anything, writes their config to `factory/lint/`, and
+proves each gate in a throwaway worktree. If your lint config already has these
+rules, it just makes sure `checks` runs it.
+
+A gate only looks at the change, so turning a rule on doesn't mean fixing the
+whole repo first:
+
+```json
+"ui-tokens": { "command": "npx stylelint --config factory/lint/stylelint.json --allow-empty-input {files}",
+               "files": ["*.{css,scss}"], "scope": "lines" }
+```
+
+`{files}` becomes the changed files matching `files`. If none match, the gate is
+skipped. With `scope: "lines"`, only problems on lines the change added or changed
+fail it. Older problems in the same files are counted in round.md but don't block.
+`node .claude/skills/factory/round.mjs check ui-tokens <worktree>` runs a gate by
+hand, the way a round would. The UI and UX reviewers skip the grep checks a passing
+gate already covers.
 
 ### Cost tracking
 
