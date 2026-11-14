@@ -203,30 +203,63 @@ export function parseChangedLines(patch) {
 }
 
 /**
+ * The path a `diff --git a/<path> b/<path>` line names. Both halves are the same path
+ * unless the file was renamed or copied, and then later lines name the paths.
+ */
+function gitHeaderPath(line) {
+  const rest = line.slice('diff --git '.length);
+  const quoted = rest.lastIndexOf(' "b/');
+  if (rest.endsWith('"') && quoted >= 0) return diffPath(rest.slice(quoted + 1)).slice(2);
+  return rest.slice(2, 2 + (rest.length - 5) / 2);
+}
+
+/**
  * A unified diff with each context and added line's number in the file's new version
- * in the margin (removed lines have none), under one `=== <file>` line per file.
+ * in the margin (removed lines have none), under one `=== <file>` line per file. The
+ * header says when a file was deleted, renamed or copied, and keeps mode changes, so a
+ * file with no hunks (a mode change, a pure rename, a binary file) still shows.
  */
 export function numberDiff(patch) {
   const out = [];
+  let file = null;
   let n = null;
-  let prev = '';
   const pad = (x) => String(x).padStart(5);
+  const header = () => {
+    if (!file || file.shown) return;
+    file.shown = true;
+    const note = file.deleted ? ' (deleted)' : file.from ? ` (${file.how} from ${file.from})` : '';
+    out.push('', `=== ${file.path}${note}`, ...file.modes.map((m) => `      ${m}`));
+  };
   for (const line of patch.split('\n')) {
     if (line.startsWith('diff --git ')) {
+      header();
+      file = { path: gitHeaderPath(line), modes: [] };
       n = null;
-    } else if (n === null && line.startsWith('+++ ') && prev.startsWith('--- ')) {
-      const to = diffPath(line.slice(4));
-      out.push('', to === '/dev/null' ? `=== ${diffPath(prev.slice(4)).replace(/^a\//, '')} (deleted)` : `=== ${to.replace(/^b\//, '')}`);
+    } else if (!file) {
+      continue;
+    } else if (n === null && /^(old|new) mode /.test(line)) {
+      file.modes.push(line);
+    } else if (n === null && line.startsWith('deleted file mode ')) {
+      file.deleted = true;
+    } else if (n === null && /^(rename|copy) from /.test(line)) {
+      file.how = line.startsWith('rename') ? 'renamed' : 'copied';
+      file.from = diffPath(line.replace(/^\S+ from /, ''));
+    } else if (n === null && /^(rename|copy) to /.test(line)) {
+      file.path = diffPath(line.replace(/^\S+ to /, ''));
     } else if (line.startsWith('@@ ')) {
+      header();
       n = Number(/^@@ -\S+ \+(\d+)/.exec(line)?.[1] ?? 0);
       out.push(`      ${line}`);
     } else if (n !== null && (line.startsWith(' ') || line.startsWith('+'))) {
       out.push(`${pad(n++)} ${line}`);
-    } else if ((n !== null && (line.startsWith('-') || line.startsWith('\\'))) || line.startsWith('Binary files')) {
+    } else if (n !== null && (line.startsWith('-') || line.startsWith('\\'))) {
+      out.push(`      ${line}`);
+    } else if (n === null && line.startsWith('Binary files')) {
+      header();
       out.push(`      ${line}`);
     }
-    prev = line;
   }
+  header();
   return out.join('\n').replace(/^\n/, '');
 }
 

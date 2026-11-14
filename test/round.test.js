@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -417,6 +417,34 @@ test('numberDiff prints each line\'s number in its file beside the diff', () => 
   ].join('\n'));
 });
 
+test('numberDiff keeps mode changes, renames and files with no hunks', () => {
+  const patch = [
+    'diff --git a/run.sh b/run.sh', 'old mode 100644', 'new mode 100755',
+    'diff --git a/old name.css b/new name.css', 'similarity index 100%', 'rename from old name.css', 'rename to new name.css',
+    'diff --git a/a.js b/lib/a.js', 'similarity index 80%', 'rename from a.js', 'rename to lib/a.js', 'index 1..2 100644',
+    '--- a/a.js', '+++ b/lib/a.js', '@@ -2 +2 @@', '-x', '+y',
+    'diff --git "a/caf\\303\\251.png" "b/caf\\303\\251.png"', 'index 1..2 100644', 'Binary files "a/caf\\303\\251.png" and "b/caf\\303\\251.png" differ',
+    'diff --git a/my theme.css b/my theme.css', 'new file mode 100644', 'index 0..1',
+  ].join('\n');
+  assert.equal(numberDiff(patch), [
+    '=== run.sh',
+    '      old mode 100644',
+    '      new mode 100755',
+    '',
+    '=== new name.css (renamed from old name.css)',
+    '',
+    '=== lib/a.js (renamed from a.js)',
+    '      @@ -2 +2 @@',
+    '      -x',
+    '    2 +y',
+    '',
+    '=== café.png',
+    '      Binary files "a/caf\\303\\251.png" and "b/caf\\303\\251.png" differ',
+    '',
+    '=== my theme.css',
+  ].join('\n'));
+});
+
 test('numberedDiff numbers a real worktree diff and can show only some files', () => {
   const { wt, commit } = jobRepo({}, { 'b.css': 'a {}\nb {}\nc {}\nd {}\ne {}\n' });
   commit('a.js', 'one\n');
@@ -426,4 +454,12 @@ test('numberedDiff numbers a real worktree diff and can show only some files', (
   assert.match(all, /=== a\.js\n.*\n {4}1 \+one/);
   assert.match(all, /^ {4}4 \+d \{ color: #333; \}$/m);
   assert.doesNotMatch(numberedDiff(wt, mergeBase, 'HEAD', ['b.css']), /a\.js/);
+
+  // A mode change and a pure rename have no hunks, and still show.
+  chmodSync(join(wt, 'a.js'), 0o755);
+  execFileSync('git', ['mv', 'b.css', 'c.css'], { cwd: wt });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'mode, rename'], { cwd: wt });
+  const moved = numberedDiff(wt, 'HEAD~1', 'HEAD');
+  assert.match(moved, /^=== a\.js\n {6}old mode 100644\n {6}new mode 100755$/m);
+  assert.match(moved, /^=== c\.css \(renamed from b\.css\)$/m);
 });
