@@ -346,7 +346,8 @@ and UX reviewers' checklists into measurements.
   `node_modules` instead, so a change to dependency files can't be compared. If the
   base can't be prepared or won't start, the findings are `unverified`: reported, but
   not blocking. If the head won't start and the base does, that alone
-  is a blocking failure.
+  is a blocking failure; if neither starts, the startup failure is itself an
+  unverified item, so a reviewer must answer it.
 - **Output:** `probe.md` (failures, unverified, pre-existing, warnings, visits not
   made, a table of every visit with its screenshot, Tab orders), `probe.json` and
   `probe/*.png`. With no round argument (the builder checking its own work) it writes

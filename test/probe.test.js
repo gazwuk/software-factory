@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULTS, compareWithBase, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, tally } from '../template/.claude/skills/factory/probe.mjs';
+import { DEFAULTS, compareWithBase, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, startupVisit, tally } from '../template/.claude/skills/factory/probe.mjs';
 
 const SPEC = `# Billing
 
@@ -193,4 +193,18 @@ test('redact masks credentials, tokens and personal data, and keeps what locates
     'GET http://localhost:5173/assets/main.3f9a8b7c6d5e4f3a2b1c0d.js → 404',
     "TypeError: Cannot read properties of undefined (reading 'id')",
   ]) assert.equal(redact(kept), kept);
+});
+
+test('an app that won\'t start blocks if the base starts, and is unverified if it doesn\'t', () => {
+  const broke = { status: 'ran', visits: [startupVisit('SyntaxError: x', true)], unreached: [] };
+  assert.deepEqual(tally(broke.visits), { failures: 1, preExisting: 0, unverified: 0, warnings: 0 });
+
+  // No base to compare with: it doesn't block, but the ux reviewer must answer it.
+  const unknown = { status: 'ran', visits: [startupVisit('SyntaxError: x', false)], unreached: [] };
+  assert.deepEqual(tally(unknown.visits), { failures: 0, preExisting: 0, unverified: 1, warnings: 0 });
+  assert.match(renderProbe(unknown), /## Unverified[\s\S]*\| U1 \| ux \| `\/` \(start\) \| startup \| app-start \| the app didn't start: SyntaxError: x/);
+  const both = ['ui', 'ux'];
+  assert.deepEqual(reviewGaps({ probe: unknown, review: '', name: 'ux', running: both }), ['U1']);
+  assert.deepEqual(reviewGaps({ probe: unknown, review: '## Probe findings\n- U1 — blocking #1\n', name: 'ux', running: both }), []);
+  assert.deepEqual(reviewGaps({ probe: unknown, review: '', name: 'ui', running: both }), []);
 });

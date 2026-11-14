@@ -131,6 +131,21 @@ export function compareWithBase(head, base) {
   }
 }
 
+/**
+ * The visit that stands for an app that didn't start. If the merge base starts, the
+ * change broke it, which blocks. If the base doesn't start either, or couldn't be
+ * prepared, it's unverified: it doesn't block, but the ux reviewer must answer it.
+ */
+export function startupVisit(error, baseStarted) {
+  return {
+    key: 'serve', screen: 'the app', state: 'start', path: '/', width: 0, theme: themeOf('—'),
+    status: null, cls: null, screenshot: null, tab: null,
+    findings: [baseStarted
+      ? { kind: 'app-start', level: 'fail', origin: 'new', message: `the app starts on the merge base but not on this commit: ${error}` }
+      : { kind: 'app-start', level: 'fail', origin: 'unverified', message: `the app didn't start: ${error}` }],
+  };
+}
+
 /** Distinct findings (one per screen, state and finding, across viewports and themes), as [visit, finding]. */
 export function distinct(visits, pick = () => true) {
   const seen = new Map();
@@ -735,13 +750,7 @@ export async function runProbe({ root, id, round = null, outDir = null }) {
     }
 
     if (!head.ok) {
-      if (!baseRun?.ok) return skip(`the app didn't start: ${head.error}`, 'error');
-      // The base serves and this commit doesn't: the change broke it.
-      r.visits = [{
-        key: 'serve', screen: 'the app', state: 'start', path: '/', width: 0, theme: themeOf('—'),
-        status: null, cls: null, screenshot: null, tab: null,
-        findings: [{ kind: 'app-start', level: 'fail', origin: 'new', message: `the app starts on the merge base but not on this commit: ${head.error}` }],
-      }];
+      r.visits = [startupVisit(head.error, baseRun?.ok ?? false)];
       return finish();
     }
     r.visits = head.value;
