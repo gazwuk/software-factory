@@ -49,9 +49,11 @@ look at an order's details, and remove an order entered by mistake.
    Escape closes it and puts focus back on the button that opened it.
 
 ## Test plan
-- AC1–AC3: Playwright tests in `tests/orders.test.js`, run by `npm test`. AC2 and AC3
-  drive the page by role and label.
-- AC4, AC5: manual, in the browser.
+- AC1–AC3: Playwright tests in `tests/orders.test.js`, run by `npm test`, including
+  the empty and error states. AC2 and AC3 drive the page by role and label.
+- AC5: a Playwright test that `/orders?order=<id>` opens the dialog; closing it and
+  where focus goes are checked by hand.
+- AC4: manual, in the browser.
 
 ## Assumptions
 - No loading state: the API is local and answers in milliseconds, so the list area is

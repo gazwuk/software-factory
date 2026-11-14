@@ -45,10 +45,13 @@ below from the diff instead.
 | Text alternatives | Meaningful images and icon-only controls have a text alternative; decorative images have `alt=""` or `aria-hidden` | `<img`, `<svg`, icon components in the diff |
 | Structure | Headings go down one level at a time and the screen has one `h1`; content sits in landmarks; lists and tables use list and table markup | The markup in the diff |
 
-`<range>` is your diff range from round.md (`<since> <head>`). Removed outlines:
+`<added>` is round.md's command for searching the lines a diff adds, with your
+`<since>` from round.md. It prints each match as `file:line: text`, with the line's
+number in the file: cite those numbers. (`grep -n` on diff output numbers lines of
+the diff, not of the file.) Removed outlines:
 
 ```
-git -C <worktree> diff <range> -U0 | grep -nE '^\+.*outline(-style)?:\s*(none|0)\b'
+<added> 'outline(-style)?:\s*(none|0)\b'
 ```
 
 ## 3. Design system
@@ -68,7 +71,7 @@ A passing `ui-a11y` gate has likewise checked that new images in its files have
 List the literal values the change adds:
 
 ```
-git -C <worktree> diff <range> -U0 | grep -nE '^\+.*(#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|[0-9.]+(px|rem|em)\b|z-index:\s*[0-9])'
+<added> '#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|[0-9.]+(px|rem|em)\b|z-index:\s*[0-9]'
 ```
 
 - A literal **colour** where the repo has colour tokens is blocking. Name the token.

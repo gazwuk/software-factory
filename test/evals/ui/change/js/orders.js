@@ -110,8 +110,10 @@ form.addEventListener('submit', async (event) => {
   form.reset();
   if (!res) return announce('Couldn’t reach the shop to add the order. Check your connection and try again.');
   if (!res.ok) {
-    const { field, error } = await res.json();
-    document.getElementById(`${field}-error`).textContent = error;
+    const { field, error } = await res.json().catch(() => ({}));
+    const target = field && document.getElementById(`${field}-error`);
+    if (target) target.textContent = error;
+    else announce('Couldn’t add the order. Try again in a moment.');
     return;
   }
   orders = [...orders, await res.json()];

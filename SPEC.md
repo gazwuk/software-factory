@@ -387,7 +387,10 @@ contract", so custom reviewers stay short and pick up contract fixes on `update`
    diff when the probe didn't run.
 3. Mechanical checks with grep commands (literal colours and sizes where tokens
    exist, removed outlines, positive tabindex, click handlers on non-interactive
-   elements). They skip what a passing `ui-tokens` or `ui-a11y` gate already
+   elements). They search only the lines the diff adds, with
+   `round.mjs grep <worktree> <from> <to> '<regex>'`, which prints `file:line: text`
+   using each line's number in its file (round.md gives the command). `grep -n` on
+   diff output numbers lines of the diff, and reviewers cited those as file lines. They skip what a passing `ui-tokens` or `ui-a11y` gate already
    covers, as project.md's Interface records it.
 4. Judgement, only where a screenshot or `file:line` can be cited.
 

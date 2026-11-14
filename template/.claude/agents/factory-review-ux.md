@@ -81,7 +81,7 @@ renders it.
   Dialogs and menus close on Escape and put focus back on the control that opened
   them. No positive `tabindex`. No click handler on a non-interactive element without
   a role and key handling:
-  `git -C <worktree> diff <range> -U0 | grep -nE '^\+.*(tabindex="?[1-9]|<(div|span|li|td)[^>]*onClick)'`
+  `<added> 'tabindex="?[1-9]|<(div|span|li|td)[^>]*onClick'`
   (skip the grep for files a passing `ui-a11y` gate covers; see below).
 - **Names and labels:** every control's accessible name contains its visible label.
   Every input has a label; field errors are tied to their field (for example with
@@ -92,7 +92,10 @@ renders it.
   Terms match what the product already calls things (grep for the term). No internal
   names, codes or jargon in anything a user reads.
 
-`<range>` is your diff range from round.md (`<since> <head>`).
+`<added>` is round.md's command for searching the lines a diff adds, with your
+`<since>` from round.md. It prints each match as `file:line: text`, with the line's
+number in the file: cite those numbers. (`grep -n` on diff output numbers lines of
+the diff, not of the file.)
 
 **Static gates.** project.md's Interface lists the repo's UI gates and what each
 covers. A `ui-a11y` gate that passed in round.md (passed or skipped, not failed) has

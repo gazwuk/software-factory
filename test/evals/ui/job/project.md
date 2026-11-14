@@ -12,7 +12,7 @@ A static web app: plain HTML, CSS and ES modules, no framework or build step.
 - typecheck: none
 
 ## Test status
-4 tests pass.
+1 test passes (the home page).
 
 ## Layout
 - `*.html` — one file per page; `serve.mjs` maps `/orders` to `orders.html`.

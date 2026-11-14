@@ -31,3 +31,26 @@ test('AC3: removes an order', async () => {
   assert.equal(await page.locator('tr[data-id="1"]').count(), 0);
   assert.equal(await page.getByRole('status').textContent(), 'Order removed.');
 });
+
+test('AC1: says when there are no orders', async () => {
+  const page = await shop.page();
+  await page.goto(`${shop.url}/orders?state=empty`);
+  await page.locator('.empty').waitFor();
+  assert.equal(await page.locator('tbody tr').count(), 0);
+});
+
+test('AC1: says when the orders can\'t be loaded', async () => {
+  const page = await shop.page();
+  await page.goto(`${shop.url}/orders?state=error`);
+  await page.getByText('Something went wrong.').waitFor();
+  assert.equal(await page.locator('table').count(), 0);
+});
+
+test('AC5: /orders?order=<id> opens that order\'s details', async () => {
+  const page = await shop.page();
+  await page.goto(`${shop.url}/orders?order=3`);
+  const dialog = page.getByRole('dialog', { name: 'Order details' });
+  await dialog.waitFor();
+  assert.match(await dialog.textContent(), /Katherine Johnson/);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'details-close');
+});

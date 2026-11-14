@@ -13,6 +13,11 @@
 //
 // runs one check the way a round would, on the worktree as it is (uncommitted work
 // included), and prints its result as JSON. Setup and the builder use it.
+//
+//   node .claude/skills/factory/round.mjs grep <worktree> <from> <to> '<regex>'
+//
+// prints each line the diff from..to adds that matches a JavaScript regex, as
+// `file:line: text` with the line's number in the file. Reviewers use it.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
@@ -143,28 +148,45 @@ function tail(text) {
 // ---------- checks ----------
 
 /**
- * The line numbers of each file's added or changed lines, in its new version, from
- * `git diff -U0` output.
+ * The lines a `git diff -U0` adds, each as { file, line, text } with its line number
+ * in the file's new version.
  */
-export function parseChangedLines(patch) {
-  const out = new Map();
+export function addedLines(patch) {
+  const out = [];
   let file = null;
+  let n = 0;
   let prev = '';
   for (const line of patch.split('\n')) {
     if (line.startsWith('+++ ') && prev.startsWith('--- ')) {
       file = line.startsWith('+++ b/') ? line.slice(6) : null;
-      if (file && !out.has(file)) out.set(file, new Set());
     } else if (file && line.startsWith('@@ ')) {
-      const m = line.match(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/);
-      if (m) {
-        const start = Number(m[1]);
-        const count = m[2] === undefined ? 1 : Number(m[2]);
-        for (let i = 0; i < count; i++) out.get(file).add(start + i);
-      }
+      n = Number(/^@@ -\S+ \+(\d+)/.exec(line)?.[1] ?? 0);
+    } else if (file && line.startsWith('+')) {
+      out.push({ file, line: n++, text: line.slice(1) });
     }
     prev = line;
   }
   return out;
+}
+
+/** The line numbers of each file's added or changed lines, from `git diff -U0` output. */
+export function parseChangedLines(patch) {
+  const out = new Map();
+  for (const { file, line } of addedLines(patch)) {
+    if (!out.has(file)) out.set(file, new Set());
+    out.get(file).add(line);
+  }
+  return out;
+}
+
+const unifiedZero = (from, to) => ['diff', '-U0', '-M', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', from, ...(to ? [to] : [])];
+
+/** The lines the diff from..to adds in a worktree that match `pattern`, as `file:line: text`. */
+export function grepAdded(worktree, from, to, pattern) {
+  const re = new RegExp(pattern);
+  return addedLines(git(unifiedZero(from, to), worktree))
+    .filter((l) => re.test(l.text))
+    .map((l) => `${l.file}:${l.line}: ${l.text.trim()}`);
 }
 
 /**
@@ -177,7 +199,7 @@ export function changeIn(cwd, base) {
   const nul = (text) => text.split('\0').filter(Boolean);
   const tracked = nul(git(['diff', '-z', '--name-only', '-M', '--diff-filter=d', base], cwd));
   const untracked = nul(git(['ls-files', '-z', '--others', '--exclude-standard'], cwd));
-  const lines = parseChangedLines(git(['diff', '-U0', '-M', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', base], cwd));
+  const lines = parseChangedLines(git(unifiedZero(base), cwd));
   for (const f of untracked) lines.set(f, true);
   return { files: [...tracked, ...untracked], lines };
 }
@@ -364,6 +386,7 @@ function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, rev
   }
   out.push('', '## What to review', '');
   out.push(`The whole change: \`git -C ${worktree} diff ${mergeBase} ${sha}\``, '');
+  out.push(`To search only the lines a diff adds, printed as \`file:line: text\` with each line's number in its file: \`node ${join(HERE, 'round.mjs')} grep ${worktree} <since> ${sha} '<regex>'\` (a JavaScript regex; \`<since>\` from your line below). Cite those numbers, not \`grep -n\` positions in diff output.`, '');
   for (const [name, r] of Object.entries(reviewers)) {
     if (!r.run) continue;
     if (r.since === mergeBase) out.push(`- **${name}:** first review of this change — review all of it.`);
@@ -466,6 +489,20 @@ function main() {
       process.exit(2);
     }
     run = (root) => tryCheck(root, name, resolve(worktree), base);
+  } else if (args[0] === 'grep') {
+    const [, worktree, from, to, pattern] = args;
+    if (!worktree || !from || !to || !pattern) {
+      console.error("Usage: node round.mjs grep <worktree> <from> <to> '<regex>'");
+      process.exit(2);
+    }
+    try {
+      const found = grepAdded(resolve(worktree), from, to, pattern);
+      if (found.length) console.log(found.join('\n'));
+    } catch (err) {
+      console.error(`round.mjs: ${(err.stderr || err.message || String(err)).toString().trim()}`);
+      process.exit(1);
+    }
+    return;
   } else {
     const [id, raw] = args;
     const n = Number(raw);

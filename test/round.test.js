@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { globMatch, parseChangedLines, prepareRound, selectReviewers, splitProblems, tryCheck } from '../template/.claude/skills/factory/round.mjs';
+import { addedLines, globMatch, grepAdded, parseChangedLines, prepareRound, selectReviewers, splitProblems, tryCheck } from '../template/.claude/skills/factory/round.mjs';
 
 const temps = [];
 after(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -339,4 +339,30 @@ test('splitProblems reads unix and stylish layouts, with colour codes', () => {
     older: ['src/App.jsx:4:7  error  Visible, non-interactive elements with click handlers  jsx-a11y/click-events-have-key-events'],
   });
   assert.equal(splitProblems('Error: Could not find config file.', dir, lines), null);
+});
+
+test('addedLines numbers each added line by its place in the file', () => {
+  const patch = [
+    'diff --git a/a.css b/a.css', '--- a/a.css', '+++ b/a.css', '@@ -2 +2 @@', '-x', '+y',
+    '@@ -5,0 +6,2 @@', '+++ not a header', '+b',
+  ].join('\n');
+  assert.deepEqual(addedLines(patch), [
+    { file: 'a.css', line: 2, text: 'y' },
+    { file: 'a.css', line: 6, text: '++ not a header' },
+    { file: 'a.css', line: 7, text: 'b' },
+  ]);
+});
+
+test('grepAdded cites file lines, not positions in the diff, and round.md gives the command', () => {
+  const { root, wt, commit, jobDir } = jobRepo({}, { 'b.css': 'a {}\nb {}\nc {}\n' });
+  commit('a.js', 'one\ntwo\nthree\n');
+  commit('b.css', 'a {}\nb { outline: none; }\nc {}\nd { color: #333; }\n');
+  const mergeBase = execFileSync('git', ['merge-base', 'main', 'HEAD'], { cwd: wt }).toString().trim();
+  assert.deepEqual(grepAdded(wt, mergeBase, 'HEAD', 'outline:\\s*none|#[0-9a-f]{3}'), [
+    'b.css:2: b { outline: none; }',
+    'b.css:4: d { color: #333; }',
+  ]);
+  assert.deepEqual(grepAdded(wt, mergeBase, 'HEAD', 'nothing-matches'), []);
+  prepareRound(root, '001-x', 1);
+  assert.match(readFileSync(join(jobDir, 'round-1/round.md'), 'utf8'), /round\.mjs grep \S+001-x <since> [0-9a-f]{40} '<regex>'/);
 });
