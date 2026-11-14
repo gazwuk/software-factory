@@ -483,22 +483,32 @@ async function runAxe([tags, nodes]) {
 
 const slug = (s) => s.replace(/^\//, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'root';
 
+/**
+ * What one Tab press means, given the stops so far and where focus went (null when it
+ * left the page, as Chromium does after the last stop). Staying put is a trap, or on an
+ * iframe focus moving inside it, which the walk can't follow. Leaving the page or
+ * coming round to the first stop ends the walk. Staying put is checked first, so a
+ * trap on the first stop isn't taken for the end.
+ */
+export function tabStep(stops, s) {
+  if (s && stops.length && s.id === stops.at(-1).id) return s.frame ? 'frame' : 'trap';
+  if (!s || (stops.length && s.id === stops[0].id)) return 'complete';
+  return 'next';
+}
+
 async function tabWalk(page, max) {
   await page.evaluate(recordRest);
   const stops = [];
   let trap = null;
   let complete = false;
-  let last = null;
   for (let i = 0; i < max; i++) {
     await page.keyboard.press('Tab');
     const s = await page.evaluate(readFocus);
-    if (!s || (stops.length && s.id === stops[0].id)) { complete = true; break; }
-    if (last && s.id === last.id) {
-      if (!s.frame) trap = s.selector;
-      break;
-    }
+    const step = tabStep(stops, s);
+    if (step === 'trap') trap = s.selector;
+    if (step === 'complete') complete = true;
+    if (step !== 'next') break;
     stops.push({ ...s, name: redact(s.name) });
-    last = s;
   }
   return { stops, trap, complete };
 }

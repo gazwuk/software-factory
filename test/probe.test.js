@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { DEFAULTS, compareWithBase, depChanges, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, startupVisit, tally } from '../template/.claude/skills/factory/probe.mjs';
+import { DEFAULTS, compareWithBase, depChanges, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, startupVisit, tabStep, tally } from '../template/.claude/skills/factory/probe.mjs';
 
 const SPEC = `# Billing
 
@@ -232,4 +232,20 @@ test('depChanges sees dependency changes before they are committed', (t) => {
   git('add', '.');
   git('commit', '-qm', 'deps');
   assert.deepEqual(depChanges(dir, base).sort(), ['package.json', 'web/yarn.lock']);
+});
+
+test('tabStep catches a trap on the first stop, and ends when Tab leaves or comes round', () => {
+  const a = { id: 1, selector: 'input' };
+  const b = { id: 2, selector: 'button' };
+  // A trap on the first stop: the second press stays on it.
+  assert.equal(tabStep([a], a), 'trap');
+  assert.equal(tabStep([a, b], b), 'trap');
+  // A lone stop, then focus leaves the page (Chromium focuses the body).
+  assert.equal(tabStep([], a), 'next');
+  assert.equal(tabStep([a], null), 'complete');
+  assert.equal(tabStep([a, b], a), 'complete');
+  assert.equal(tabStep([], null), 'complete');
+  // Focus moving inside an iframe can't be followed, and isn't a trap.
+  const frame = { id: 3, selector: 'iframe', frame: true };
+  assert.equal(tabStep([a, frame], frame), 'frame');
 });
