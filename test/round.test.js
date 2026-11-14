@@ -178,3 +178,50 @@ test('prepareRound gates on checks and dirty worktrees, then selects reviewers',
   assert.equal(state.reviewers.ui.since, state.mergeBase);
   assert.match(readFileSync(join(jobDir, 'round-2/round.md'), 'utf8'), new RegExp(`diff ${r1.sha} ${r2.sha}`));
 });
+
+test('the UI probe runs for probe reviewers, and its new failures block the round', () => {
+  const { root, commit, jobDir } = jobRepo({});
+  const config = JSON.parse(readFileSync(join(root, 'factory/config.json'), 'utf8'));
+  config.reviewers.ui.probe = true;
+  writeFileSync(join(root, 'factory/config.json'), JSON.stringify(config));
+  const calls = [];
+  const probe = (summary) => (r, id, n) => { calls.push([id, n]); return summary; };
+
+  // No probe reviewer selected: the probe doesn't run.
+  commit('api.js', 'x\n');
+  const quiet = prepareRound(root, '001-x', 1, { probe: probe({ status: 'ran', failures: 0, warnings: 0 }) });
+  assert.equal(quiet.ok, true);
+  assert.deepEqual(calls, []);
+  assert.doesNotMatch(readFileSync(join(jobDir, 'round-1/round.md'), 'utf8'), /UI probe/);
+
+  // A stylesheet selects ui, so the probe runs; a new failure blocks like a failed check.
+  commit('app.css', 'a{}\n');
+  const file = join(jobDir, 'round-1/probe.md');
+  const blocked = prepareRound(root, '001-x', 1, {
+    probe: probe({ status: 'ran', failures: 2, warnings: 1, file, top: ['overflow: page is 600px wide'] }),
+  });
+  assert.deepEqual(calls, [['001-x', 1]]);
+  assert.equal(blocked.ok, false);
+  assert.deepEqual(blocked.failed, ['ui-probe']);
+  const state = JSON.parse(readFileSync(join(jobDir, 'round-1/round.json'), 'utf8'));
+  assert.equal(state.reviewers, null);
+  assert.equal(state.checks.ok, false);
+  assert.deepEqual(state.checks.results.map((c) => [c.name, c.exit]), [['ui-probe', 1]]);
+  assert.equal(state.probe.failures, 2);
+  const md = readFileSync(join(jobDir, 'round-1/round.md'), 'utf8');
+  assert.match(md, /\*\*Failed:\*\* ui-probe/);
+  assert.match(md, /overflow: page is 600px wide/);
+  assert.match(md, /\*\*2 new failure\(s\)\.\*\*/);
+
+  // Passing, or skipped: reviewers run, and round.md says what the probe did.
+  const passed = prepareRound(root, '001-x', 1, { probe: probe({ status: 'ran', failures: 0, warnings: 3, file }) });
+  assert.equal(passed.ok, true);
+  assert.ok(passed.run.some((r) => r.name === 'ui'));
+  assert.match(readFileSync(join(jobDir, 'round-1/round.md'), 'utf8'), /No new failures\. 3 warning\(s\)/);
+
+  const skipped = prepareRound(root, '001-x', 1, { probe: probe({ status: 'skipped', reason: 'no ui.serve.', failures: 0, warnings: 0 }) });
+  assert.equal(skipped.ok, true);
+  const skippedMd = readFileSync(join(jobDir, 'round-1/round.md'), 'utf8');
+  assert.match(skippedMd, /Skipped: no ui\.serve\. Review from the diff\./);
+  assert.match(skippedMd, /No checks configured/);
+});

@@ -12,6 +12,9 @@ for everything below.
   tables, "tested", "handled") as things to check, never as evidence.
 - `round-N/round.md` — the commit under review, the results of the project's checks
   on that commit, the changed files, and the exact `git diff` command for your review.
+- `round-N/probe.md`, when round.md has a UI probe section — measurements of the
+  change's screens at each viewport and theme, with screenshots in `round-N/probe/`.
+  Its numbers are facts; read them before judging anything they cover.
 - Any file in the worktree you need for context.
 - If round.md lists a last review for you: that review, plus any `human.md` or
   `decision.md` in the round folders since.

@@ -29,6 +29,7 @@ agents **absolute** paths.
 | `.factory-worktrees/<id>/` | The builder's git worktree, on branch `factory/<id>`. |
 | `.claude/skills/factory/reviewer-contract.md` | Rules every reviewer follows. |
 | `.claude/skills/factory/round.mjs` | Runs the checks and picks the reviewers for a round. |
+| `.claude/skills/factory/probe.mjs` | The UI probe: serves the worktree and measures the spec's screens. round.mjs runs it. |
 | `.claude/skills/factory/usage.mjs` | Records each agent's tokens and cost (a SubagentStop hook runs it). |
 | `.claude/skills/factory/board.mjs` | Changes one job on board.json under a lock; claims job ids. |
 | `.claude/skills/factory/runner.mjs` | The headless runner: the same loop in code, no session needed. |
@@ -238,6 +239,8 @@ Whenever a job with an `issue` changes to `needs-human`, comment on the issue (s
    `round-N/round.md` and `round-N/round.json` and prints one line of JSON. If it
    exits non-zero, stage `needs-human` with its error as the note.
    - `"ok": false` → the checks failed (or the worktree had uncommitted changes).
+     `ui-probe` among the failures means the UI probe found problems the change
+     introduced; round.md links its report, and it's fixed the same way.
      Spawn a fresh builder on the fix model: "Check fix: the checks failed on the last
      commit; the output is in `<abs round.md>`. Fix the cause, commit, and reply with
      one line." Then run round.mjs
@@ -433,8 +436,8 @@ Done by you directly, no agent. Re-runnable.
 5. Write `config.checks`: the test, lint and type-check commands from step 1, as
    `{ "test": "<command>", "lint": "<command>", "typecheck": "<command>" }`. Leave out
    any the repo doesn't have. They run from the worktree root without a terminal, so
-   use non-interactive forms (no watch mode). These are the only checks the factory
-   runs between the builder and the reviewers.
+   use non-interactive forms (no watch mode). These and the UI probe (step 6) are
+   the only checks the factory runs between the builder and the reviewers.
 6. **Tune reviewer selection** in config:
    - If the repo has no user interface, set `enabled: false` for `ux` and `ui` (say
      so; the user can re-enable them).
@@ -446,6 +449,27 @@ Done by you directly, no agent. Re-runnable.
    - Globs: `**` spans folders, `*` stays within one, `{a,b}` is either, and a glob
      with no `/` matches a file name anywhere. A reviewer without `paths` reviews
      every change.
+   - **UI probe** (web UIs only). Before any reviewer with `probe: true` runs,
+     `probe.mjs` serves the job's worktree, opens each screen spec.md lists at every
+     `ui.viewports` width in every `ui.themes` theme, and records axe (WCAG 2.2 AA)
+     violations, sideways overflow, page and console errors, layout shift, the Tab
+     order and screenshots. Failures the change introduced send the job back to the
+     builder before the reviewers run. To set it up:
+     - `ui.serve`: the command that serves the app, with `{port}` where the port
+       goes (it's also in `PORT`), such as `npm run dev -- --port {port}`. It runs in
+       a fresh worktree, so it must work without a terminal and with only what's
+       committed plus `node_modules`. `ui.url` is where it answers.
+     - `ui.themes`: `"light"` and `"dark"` set `prefers-color-scheme`. For a theme
+       chosen another way, use `{ "name": "dark", "colorScheme": "dark", "init":
+       "localStorage.theme = 'dark'" }`; `init` runs before the page's scripts.
+     - Screens behind a sign-in need `ui.storageState`: a Playwright storage-state
+       file, relative to the repo root. Tell the user how to make one.
+     - The probe needs `playwright` and `axe-core` in the repo and Chromium
+       (`npx playwright install chromium`). If they're missing, ask the user before
+       adding them as dev dependencies. Without them the probe reports "skipped"
+       and the reviewers work from the diff alone.
+     - Check it by starting `ui.serve` once with a free port and fetching `ui.url`.
+     - No web UI, or the user declines: leave `ui.serve` empty.
 7. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
    from issues labelled `<githubLabel>` by setting `tasks.source` to `"github"`.
 8. Show the user a short summary and suggest committing `.claude/` and `factory/`.

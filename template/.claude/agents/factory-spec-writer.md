@@ -92,6 +92,10 @@ these, so keep them exact:
 - **How to reach it** uses what the repo already has: seed data, fixtures, test
   mocks, query parameters, a feature flag. If a state can't be reached that way,
   say what's missing; making it reachable is then part of the scope.
+- **URLs for the probe.** The UI probe opens each route row in a browser: the
+  `default` state at the route itself, any other state only at a URL in backticks
+  in How to reach it that starts with the route (`/settings/billing?cards=0`). Give
+  one whenever a state has a URL; states without one are only covered by tests.
 - **Flow criteria** are tagged `(flow)`: anything a user does in more than one step,
   including the error path when it matters. Start from a screen and state in the
   table. Make each step one action on a control named by its visible label, in

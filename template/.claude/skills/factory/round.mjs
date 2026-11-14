@@ -6,12 +6,15 @@
 //
 // Writes factory/jobs/<id>/round-<N>/round.md (for agents and people) and round.json
 // (state the next round reads), then prints one line of JSON for the orchestrator.
+// When a selected reviewer has `probe: true`, it also runs probe.mjs, whose new
+// failures block the round like a failed check.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const TAIL_LINES = 15;
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 // ---------- globs ----------
 
@@ -149,6 +152,19 @@ function runChecks(checks, cwd) {
   });
 }
 
+/** Runs probe.mjs as a child process and returns its summary. */
+function probeProcess(root, id, n) {
+  const r = spawnSync(process.execPath, [join(HERE, 'probe.mjs'), id, String(n)], {
+    cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const last = (r.stdout || '').trim().split('\n').pop();
+  if (r.status === 0) {
+    try { return JSON.parse(last); } catch { /* fall through */ }
+  }
+  const error = (r.stderr || r.error?.message || `exited ${r.status}`).trim().split('\n').pop();
+  return { status: 'error', reason: `probe.mjs failed: ${error}`, failures: 0, warnings: 0 };
+}
+
 function verdictFile(path) {
   if (!existsSync(path)) return null;
   const first = readFileSync(path, 'utf8').split('\n', 1)[0].trim();
@@ -156,7 +172,19 @@ function verdictFile(path) {
   return m ? m[1] : null;
 }
 
-function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat }) {
+function renderProbeSection(probe) {
+  const out = ['## UI probe', ''];
+  if (probe.status !== 'ran') {
+    const reason = String(probe.reason || '').replace(/\.?$/, '.');
+    out.push(`${probe.status === 'skipped' ? 'Skipped' : 'Not run'}: ${reason} Review from the diff.`, '');
+    return out;
+  }
+  out.push(`${probe.failures ? `**${probe.failures} new failure(s).**` : 'No new failures.'} ${probe.warnings} warning(s) for reviewers to judge.`, '');
+  out.push(`Report: \`${probe.file}\` (screenshots in \`probe/\` beside it).`, '');
+  return out;
+}
+
+function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat, probe }) {
   const out = [`# Round ${n} — ${id}`, ''];
   out.push(`Commit under review: \`${sha}\` on \`factory/${id}\` (base \`${base}\`, merge base \`${mergeBase}\`).`, '');
 
@@ -175,6 +203,7 @@ function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, rev
     }
     out.push('');
   }
+  if (probe) out.push(...renderProbeSection(probe));
 
   if (!reviewers) {
     out.push('## Reviewers', '', 'Not selected: the checks have to pass first.', '');
@@ -196,7 +225,11 @@ function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, rev
   return out.join('\n');
 }
 
-export function prepareRound(root, id, n) {
+/**
+ * Prepares round n of a job. `probe(root, id, n)` runs the UI probe and returns its
+ * summary; tests pass a stand-in.
+ */
+export function prepareRound(root, id, n, { probe: runProbe = probeProcess } = {}) {
   const config = readJson(join(root, 'factory/config.json'));
   if (!config) throw new Error('factory/config.json is missing or not valid JSON');
   const base = config.baseBranch;
@@ -213,10 +246,11 @@ export function prepareRound(root, id, n) {
   const dirty = git(['status', '--porcelain'], worktree);
   const checks = dirty ? [] : runChecks(config.checks || {}, worktree);
   const failed = checks.filter((c) => c.exit !== 0).map((c) => c.name);
-  const ok = !dirty && !failed.length;
+  let ok = !dirty && !failed.length;
 
   let reviewers = null;
   let stat = '';
+  let probe = null;
   if (ok) {
     const job = (readJson(join(root, 'factory/board.json'))?.jobs || []).find((j) => j.id === id);
     const names = job?.reviewers || Object.keys(config.reviewers || {}).filter((k) => config.reviewers[k].enabled !== false);
@@ -236,15 +270,33 @@ export function prepareRound(root, id, n) {
       fullChange: changedSince(mergeBase),
     });
     stat = git(['diff', '--stat', mergeBase, sha], root);
+
+    if (Object.entries(reviewers).some(([name, r]) => r.run && config.reviewers?.[name]?.probe)) {
+      const started = Date.now();
+      probe = runProbe(root, id, n);
+      if (probe.status === 'ran') {
+        const output = probe.failures ? [...(probe.top || []), `Full report: ${probe.file}`].join('\n') : '';
+        checks.push({
+          name: 'ui-probe', command: `node .claude/skills/factory/probe.mjs ${id} ${n}`,
+          exit: probe.failures ? 1 : 0, seconds: Math.round((Date.now() - started) / 1000), output,
+        });
+      }
+      if (probe.failures) {
+        failed.push('ui-probe');
+        ok = false;
+        reviewers = null;
+      }
+    }
   }
 
   const record = {
     round: n, sha, base, mergeBase,
     checks: { ok, dirty: Boolean(dirty), results: checks.map(({ output, ...c }) => c) },
     reviewers,
+    probe: probe && { status: probe.status, reason: probe.reason ?? null, failures: probe.failures, warnings: probe.warnings, file: probe.file ?? null },
   };
   writeFileSync(join(roundDir, 'round.json'), `${JSON.stringify(record, null, 2)}\n`);
-  writeFileSync(join(roundDir, 'round.md'), renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat }));
+  writeFileSync(join(roundDir, 'round.md'), renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat, probe }));
 
   const summary = { ok, sha, roundFile: join(roundDir, 'round.md') };
   if (!ok) summary.failed = dirty ? ['uncommitted changes'] : failed;

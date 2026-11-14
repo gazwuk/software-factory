@@ -42,7 +42,8 @@ Node >= 18.
 - Requires a git repo with at least one commit; refuses otherwise.
 - Refuses if `.claude/skills/factory/` already exists (points to `update`).
 - Copies `template/` into the repo, never overwriting an existing file.
-- Appends to `.gitignore`: `factory/board.json`, `factory/usage.json`, `.factory-worktrees/`.
+- Appends to `.gitignore`: `factory/board.json`, `factory/usage.json`, `factory/.locks/`,
+  `factory/activity/`, `.factory-worktrees/`, `factory/jobs/*/round-*/probe/` (probe screenshots).
 - Adds an async `SubagentStop` hook (matcher `^factory-`) running `usage.mjs` to
   `.claude/settings.json`, creating the file if needed. `update` adds it if missing.
 - Writes `factory/.manifest.json` (package version + hash of every package-owned file).
@@ -68,6 +69,7 @@ Node >= 18.
     reviewer-contract.md             # rules every reviewer follows       [package]
     templates/reviewer.md            # scaffold for custom reviewers      [package]
     round.mjs                        # checks gate + reviewer selection   [package]
+    probe.mjs                        # UI probe: renders and measures screens [package]
     usage.mjs                        # cost tracking (SubagentStop hook)  [package]
     board.mjs                        # locked board writes, job id claims [package]
     runner.mjs                       # headless runner                    [package]
@@ -97,6 +99,8 @@ factory/
     build.md
     round-1/round.md                 # checks, selected reviewers and why, diff commands
     round-1/round.json               # state for the next round's selection
+    round-1/probe.md, probe.json     # UI probe report, when it ran
+    round-1/probe/*.png              # probe screenshots                 [gitignored]
     round-1/review-<reviewer>.md
     round-2/...                      # may also hold human.md and an earlier decision.md after a rework
     decision.md
@@ -125,6 +129,16 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
     "maxParallelChecks": 1,
     "permissionMode": "dontAsk"
   },
+  "ui": {
+    "serve": "npm run dev -- --port {port}",
+    "url": "http://localhost:{port}",
+    "readyTimeout": 120,
+    "viewports": [320, 768, 1280],
+    "themes": ["light", "dark"],
+    "storageState": null,
+    "maxVisits": 60,
+    "tabStops": 30
+  },
   "models": {
     "spec-writer": "opus",
     "builder": "opus",
@@ -134,8 +148,8 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
   "reviewers": {
     "security": { "model": "sonnet", "enabled": true,
                   "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json"] },
-    "ux":       { "model": "sonnet", "enabled": true, "paths": ["**/components/**", "**/pages/**"] },
-    "ui":       { "model": "sonnet", "enabled": true, "paths": ["*.{css,scss,tsx}"] },
+    "ux":       { "model": "sonnet", "enabled": true, "probe": true, "paths": ["**/components/**", "**/pages/**"] },
+    "ui":       { "model": "sonnet", "enabled": true, "probe": true, "paths": ["*.{css,scss,tsx}"] },
     "code":     { "model": "sonnet", "enabled": true }
   }
 }
@@ -154,6 +168,8 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
   when the whole change touches matching files.
 - `tasks.source`: where `/factory next` and `/factory backlog` read and write tasks —
   `"backlog"` (factory/backlog.md) or `"github"` (issues labelled `tasks.githubLabel`).
+- `reviewers.<key>.probe` (optional): the UI probe runs before this reviewer, see
+  **UI probe**. `ui` configures it; an empty `ui.serve` turns it off.
 - `runner`: see **Runner**. `command` (optional) replaces the `claude` binary.
 
 ## The loop
@@ -238,7 +254,7 @@ own output file. Every agent reads `factory/project.md`.
 |---|---|---|
 | spec-writer | request.md, repo | `spec.md`: goal, scope, out of scope, screens and their states, numbered acceptance criteria (user flows as `(flow)` steps) |
 | builder | spec.md, latest round folder (if any), rework note | code + tests in the worktree, commits on `factory/<job-id>`; `build.md`: what changed, how each acceptance criterion is met, test output |
-| reviewer-* | spec.md, build.md, round.md (checks + its diff range), worktree | `round-N/review-<name>.md`, first line `VERDICT: PASS` or `VERDICT: CHANGES`, then findings |
+| reviewer-* | spec.md, build.md, round.md (checks + its diff range), probe.md when the probe ran, worktree | `round-N/review-<name>.md`, first line `VERDICT: PASS` or `VERDICT: CHANGES`, then findings |
 | approver | everything in the job folder, diff, final round.md (re-runs checks only if the branch moved) | `decision.md`, first line `APPROVE` or `ESCALATE`, then reasoning |
 
 Every agent replies to the orchestrator with one line; the detail is in its file.
@@ -253,9 +269,45 @@ Every agent replies to the orchestrator with one line; the detail is in its file
 3. Selects it if its last verdict was CHANGES or missing, or if files matching its
    `paths` (all files when unset) changed between `since` and the head.
 4. Picks `escalateModel` if the whole change touches its `escalatePaths`.
-5. Writes `round.md` (results, selection table with reasons, a `git diff <since> <head>`
-   per selected reviewer, diff stat) and `round.json`, and prints a one-line JSON
-   summary.
+5. If a selected reviewer has `probe: true`, runs `probe.mjs` (see **UI probe**). New
+   failures count as a failed check named `ui-probe`: the builder fixes them and no
+   reviewer runs this round.
+6. Writes `round.md` (results, selection table with reasons, a `git diff <since> <head>`
+   per selected reviewer, diff stat, the probe's result) and `round.json`, and prints a
+   one-line JSON summary.
+
+**UI probe (`probe.mjs`):** deterministic, no model; web UIs only. It turns the UI
+and UX reviewers' checklists into measurements.
+
+- **What it visits:** the rows of spec.md's `## Screens` table whose screen is a route.
+  The `default` state is opened at the route; other states at the first backticked
+  `/path` in "How to reach it". Rows it can't open are listed as not visited. Each is
+  opened at every `ui.viewports` width (800px tall) in every `ui.themes` theme, capped
+  at `ui.maxVisits`.
+- **How:** starts `ui.serve` in the worktree on a free port (`{port}` and `PORT`),
+  waits for `ui.url` to answer, and drives Chromium through the repo's own
+  `playwright` and `axe-core` (none of the package's dependencies). Missing tools, no
+  `ui.serve` or no screens → `skipped`, and reviewers work from the diff.
+- **What it measures, per visit:** the page's HTTP status; uncaught page errors;
+  console errors and failed requests; sideways overflow (`scrollWidth` beyond the
+  viewport, with the outermost elements causing it); axe-core violations for WCAG 2.2
+  A/AA (which include contrast and target size); cumulative layout shift; and a
+  screenshot. Once per screen and state (widest viewport, first theme) it walks the
+  Tab order, recording each stop's role, name and selector, whether its computed
+  style changes on focus, and focus traps.
+- **What blocks:** a page that fails to load or returns 4xx/5xx (unless the state is
+  an error or not-found state), a page error, overflow, and serious or critical axe
+  violations. Everything else is a warning for reviewers to judge.
+- **Only new failures block.** When the head has blocking findings, the probe checks
+  out the merge base beside the worktree (sharing its `node_modules`), serves it, and
+  repeats those visits. A finding the base has too is `pre-existing`. If the change
+  touches dependency files, or the base won't start, the findings are `unverified`:
+  reported, but not blocking. If the head won't start and the base does, that alone
+  is a blocking failure.
+- **Output:** `probe.md` (failures, unverified, pre-existing, warnings, visits not
+  made, a table of every visit with its screenshot, Tab orders), `probe.json` and
+  `probe/*.png`. With no round argument (the builder checking its own work) it writes
+  to a temp folder.
 
 **Builder lifecycle:** a fresh builder for every step — first build, each check fix,
 each review round, each rework — never resumed with SendMessage. A resumed builder

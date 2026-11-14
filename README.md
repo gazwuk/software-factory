@@ -180,6 +180,7 @@ out.
   skills/factory/SKILL.md        the orchestrator: runs the loop, or hands it to the runner
   skills/factory/reviewer-contract.md
   skills/factory/round.mjs       runs the checks and picks the reviewers each round
+  skills/factory/probe.mjs       the UI probe: renders the change's screens and measures them
   skills/factory/usage.mjs       records each agent's tokens and cost
   skills/factory/board.mjs       changes board.json under a lock; claims job ids
   skills/factory/runner.mjs      the headless runner
@@ -195,7 +196,7 @@ factory/
   .locks/                        locks for the runner and board writes (gitignored)
   activity/                      what the headless runner is running now, for the dashboard (gitignored)
   dashboard.html
-  jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,review-*.md}, decision.md, usage/
+  jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,probe.md,review-*.md}, decision.md, usage/
 ```
 
 The builder works in a git worktree (`.factory-worktrees/<id>`, gitignored) on branch
@@ -215,12 +216,14 @@ folder is committed as a record of what happened.
   "checks": { "test": "npm test", "lint": "npm run lint" },
   "runner": { "headless": false, "harness": "claude-code", "parallel": 1,
               "maxParallelChecks": 1, "permissionMode": "dontAsk" },
+  "ui": { "serve": "npm run dev -- --port {port}", "url": "http://localhost:{port}",
+          "viewports": [320, 768, 1280], "themes": ["light", "dark"] },
   "models": { "spec-writer": "opus", "builder": "opus", "builder-fix": "sonnet", "approver": "opus" },
   "reviewers": {
     "security": { "model": "sonnet", "enabled": true,
                   "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json", "…"] },
-    "ux": { "model": "sonnet", "enabled": true, "paths": ["**/components/**", "**/pages/**", "…"] },
-    "ui": { "model": "sonnet", "enabled": true, "paths": ["*.{css,scss,tsx}", "…"] },
+    "ux": { "model": "sonnet", "enabled": true, "probe": true, "paths": ["**/components/**", "**/pages/**", "…"] },
+    "ui": { "model": "sonnet", "enabled": true, "probe": true, "paths": ["*.{css,scss,tsx}", "…"] },
     "code": { "model": "sonnet", "enabled": true }
   }
 }
@@ -239,6 +242,8 @@ folder is committed as a record of what happened.
   matching these globs. Leave it out to review every change.
 - `reviewers.<name>.escalatePaths` / `escalateModel`: use `escalateModel` instead of
   `model` when the change touches these files.
+- `reviewers.<name>.probe`: run the [UI probe](#ui-probe) before this reviewer.
+- `ui`: how the UI probe serves and views the app. An empty `ui.serve` turns it off.
 - Turn a reviewer off with `"enabled": false` rather than deleting it.
 - `runner.headless`: hand `/factory` jobs to the headless runner.
   `runner.parallel` is the default for `--parallel`. `runner.maxParallelChecks` caps
@@ -265,6 +270,8 @@ Each review round starts with `round.mjs`, a small script rather than an agent:
 3. **Which model.** If the change touches a reviewer's `escalatePaths`, it runs on
    `escalateModel`. So security is on Sonnet for most changes and Opus for
    authentication, dependencies, migrations and CI.
+4. **UI probe.** If a selected reviewer has `probe: true` (ui and ux do), it runs
+   `probe.mjs`; see below.
 
 Everything it decided, and why, is in `round-N/round.md` (the **checks** tab on the
 dashboard). Globs: `**` spans folders, `*` stays within one, `{a,b}` is either, and a
@@ -288,6 +295,32 @@ override or add a price, put this in config (USD per million tokens):
 ```json
 "pricing": { "claude-opus-5-5": { "input": 4, "output": 20, "cacheRead": 0.2 } }
 ```
+
+### UI probe
+
+For web UIs, the UI and UX reviewers start from measurements instead of a diff.
+`probe.mjs` serves the job's worktree with `ui.serve`, opens every screen and state in
+the spec's **Screens** table at each `ui.viewports` width in each `ui.themes` theme,
+and records:
+
+- axe-core violations against WCAG 2.2 A/AA (contrast, names, labels, target size, …)
+- sideways overflow, and the elements causing it
+- page errors, console errors, failed requests and the page's HTTP status
+- layout shift (CLS)
+- the Tab order, with each stop's name and whether focus is visible
+- a screenshot of each visit, which the reviewers look at
+
+Load failures, error statuses, page errors, overflow and serious or critical axe
+violations block: the builder fixes them before any reviewer runs. They block only
+if the change introduced them. The probe repeats failing visits on the merge base,
+and anything already there is reported as pre-existing. The rest are warnings for
+the reviewers. The report is `round-N/probe.md`; screenshots are in `round-N/probe/`
+(gitignored).
+
+It uses your repo's own `playwright` and `axe-core` (`npm i -D playwright axe-core`
+and `npx playwright install chromium`); without them, or with no `ui.serve`, it's
+skipped. `/factory setup` configures it. For screens behind a sign-in, point
+`ui.storageState` at a Playwright storage-state file.
 
 ### Your own reviewers
 
