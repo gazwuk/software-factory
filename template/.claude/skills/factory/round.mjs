@@ -312,14 +312,16 @@ function verdictFile(path) {
   return m ? m[1] : null;
 }
 
-function renderProbeSection(probe) {
+function renderProbeSection(probe, blocks) {
   const out = ['## UI probe', ''];
   if (probe.status !== 'ran') {
     const reason = String(probe.reason || '').replace(/\.?$/, '.');
     out.push(`${probe.status === 'skipped' ? 'Skipped' : 'Not run'}: ${reason} Review from the diff.`, '');
     return out;
   }
-  out.push(`${probe.failures ? `**${probe.failures} new failure(s).**` : 'No new failures.'} ${probe.warnings} warning(s) for reviewers to judge.`, '');
+  const failures = !probe.failures ? 'No new failures.'
+    : blocks ? `**${probe.failures} new failure(s).**` : `**${probe.failures} new failure(s)**, for the reviewers to answer (they don't block this round).`;
+  out.push(`${failures} ${probe.warnings} warning(s) for reviewers to judge.`, '');
   out.push(`Report: \`${probe.file}\` (screenshots in \`probe/\` beside it).`, '');
   return out;
 }
@@ -330,7 +332,7 @@ function checkResult(c) {
   return `${c.note ? `${result}: ${c.note}` : result}, ${c.seconds}s`;
 }
 
-function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat, probe }) {
+function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat, probe, probeBlocks }) {
   const out = [`# Round ${n} — ${id}`, ''];
   out.push(`Commit under review: \`${sha}\` on \`factory/${id}\` (base \`${base}\`, merge base \`${mergeBase}\`).`, '');
 
@@ -349,7 +351,7 @@ function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, rev
     }
     out.push('');
   }
-  if (probe) out.push(...renderProbeSection(probe));
+  if (probe) out.push(...renderProbeSection(probe, probeBlocks));
 
   if (!reviewers) {
     out.push('## Reviewers', '', 'Not selected: the checks have to pass first.', '');
@@ -373,9 +375,10 @@ function renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, rev
 
 /**
  * Prepares round n of a job. `probe(root, id, n)` runs the UI probe and returns its
- * summary; tests pass a stand-in.
+ * summary; tests pass a stand-in. With `probeBlocks: false` (the reviewer evals), the
+ * probe's failures go to the reviewers instead of blocking the round.
  */
-export function prepareRound(root, id, n, { probe: runProbe = probeProcess } = {}) {
+export function prepareRound(root, id, n, { probe: runProbe = probeProcess, probeBlocks = true } = {}) {
   const config = readJson(join(root, 'factory/config.json'));
   if (!config) throw new Error('factory/config.json is missing or not valid JSON');
   const base = config.baseBranch;
@@ -420,14 +423,14 @@ export function prepareRound(root, id, n, { probe: runProbe = probeProcess } = {
     if (Object.entries(reviewers).some(([name, r]) => r.run && config.reviewers?.[name]?.probe)) {
       const started = Date.now();
       probe = runProbe(root, id, n);
-      if (probe.status === 'ran') {
+      if (probe.status === 'ran' && probeBlocks) {
         const output = probe.failures ? [...(probe.top || []), `Full report: ${probe.file}`].join('\n') : '';
         checks.push({
           name: 'ui-probe', command: `node .claude/skills/factory/probe.mjs ${id} ${n}`,
           exit: probe.failures ? 1 : 0, seconds: Math.round((Date.now() - started) / 1000), output,
         });
       }
-      if (probe.failures) {
+      if (probe.failures && probeBlocks) {
         failed.push('ui-probe');
         ok = false;
         reviewers = null;
@@ -442,7 +445,7 @@ export function prepareRound(root, id, n, { probe: runProbe = probeProcess } = {
     probe: probe && { status: probe.status, reason: probe.reason ?? null, failures: probe.failures, warnings: probe.warnings, file: probe.file ?? null },
   };
   writeFileSync(join(roundDir, 'round.json'), `${JSON.stringify(record, null, 2)}\n`);
-  writeFileSync(join(roundDir, 'round.md'), renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat, probe }));
+  writeFileSync(join(roundDir, 'round.md'), renderRound({ id, n, sha, base, mergeBase, worktree, checks, dirty, reviewers, stat, probe, probeBlocks }));
 
   const summary = { ok, sha, roundFile: join(roundDir, 'round.md') };
   if (!ok) summary.failed = dirty ? ['uncommitted changes'] : failed;

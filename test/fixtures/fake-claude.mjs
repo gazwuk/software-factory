@@ -5,6 +5,7 @@
 // Env: FAKE_LOG=<file> appends one JSON line per run ({ agent, model, args }).
 //      FAKE_BUILDER_HANG=<marker> makes the first builder run hang until killed.
 //      FAKE_CHANGES_ONCE=<marker> makes the first code review ask for changes.
+//      FAKE_REVIEWS=<dir> makes reviewer <name> write <dir>/review-<name>.md, if it exists.
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -44,7 +45,9 @@ if (agent === 'spec-writer') {
   else if (!existsSync(build)) writeFileSync(build, `# Build — ${id}\n`);
 } else if (agent.startsWith('review-')) {
   const changes = agent === 'review-code' && once(process.env.FAKE_CHANGES_ONCE);
-  writeFileSync(line('Output'), changes ? 'VERDICT: CHANGES\n\n1. Fix it.\n' : 'VERDICT: PASS\n');
+  const canned = process.env.FAKE_REVIEWS && join(process.env.FAKE_REVIEWS, `${agent}.md`);
+  if (canned && existsSync(canned)) writeFileSync(line('Output'), readFileSync(canned));
+  else writeFileSync(line('Output'), changes ? 'VERDICT: CHANGES\n\n1. Fix it.\n' : 'VERDICT: PASS\n');
 } else if (agent === 'approver') {
   writeFileSync(line('Output'), 'APPROVE\nReason: all criteria met\n');
 }

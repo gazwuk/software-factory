@@ -407,6 +407,64 @@ new skill writes the board through `board.mjs`, so a session and a runner can wo
 side by side. `run` needs a Claude Code recent enough for `claude -p --agent` with
 `--permission-mode dontAsk`; it checks before it starts.
 
+## Measuring the reviewers
+
+When you change the UI or UX reviewer prompts, the reviewer contract or the probe,
+the reviewer benchmark tells you whether reviews got better or worse. It's for working on the
+factory itself, so it lives in this repo's `test/evals/` and isn't installed into
+yours.
+
+The fixture in `test/evals/ui/` is a small shop app. Its job branch adds an Orders page
+with 12 planted defects, recorded in `defects.json` with their lane, file and lines:
+
+- **UI:** a table that overflows at 320px, a literal `#333` where a colour token exists,
+  `outline: none` with no replacement, text at 2.15:1 contrast, 16px tap targets.
+- **UX:** an icon-only button with no name, a delete with no confirmation, a bare
+  "Something went wrong.", a form that loses its input on a rejected submit, a dialog
+  that doesn't return focus, a flow test that calls a function instead of pressing
+  the button, and an empty state with no next step.
+
+It also has correct changes nearby (token-only styles, labelled fields with tied
+errors, a status region, a flow test that drives the UI), so false positives show up.
+
+```
+npm ci --prefix test/evals/ui/base                        # Playwright and axe-core for the probe
+npx --prefix test/evals/ui/base playwright install chromium
+npm run eval:reviewers                                    # 3 runs each, probe on and off
+npm run eval:reviewers -- --runs 1 --probe on --models sonnet,opus
+```
+
+Each run builds a throwaway repo from the fixture, installs the factory from
+`template/`, prepares round 1 with the real `round.mjs` and probe, and runs
+`factory-review-ui` and `factory-review-ux` with `claude -p`. The probe's failures go
+to the reviewers instead of blocking the round, so every defect reaches them.
+`--keep` keeps each repo for a look at the reviews.
+
+**Cost:** it runs real agents. A run is two reviews: about $0.40 on Sonnet at API
+prices (measured with the probe on), and more on Opus. The default (3 runs × probe
+on and off) is 12 reviews, about $2.50 on Sonnet.
+
+**Scoring** is code, not a model (`test/evals/score.mjs`, tested in `npm test`). A
+blocking finding finds a defect when it cites one of the defect's `file:line`
+ranges, a probe ID whose finding matches it (`F2` is axe `button-name`), or a
+screenshot of the defect's state together with one of its keywords. For each
+variant it prints, per reviewer:
+
+- **Recall:** the defects in its lane that it found.
+- **Precision:** the blocking findings that found a defect, out of all of them.
+- **False positives on controls:** blocking findings that hit a correct change and
+  no defect.
+- **check-review:** how many of its reviews answered every probe item and
+  screenshot they owed.
+- **Cost** per run, from the agents' token counts.
+
+It also prints the recall of both reviewers together, the share of defects the probe's
+items point at, and how often each defect was found. Model output varies, so each
+number is the mean, with the range across runs in brackets. Results go to
+`test/evals/results/<date>-probe-<on|off>-<model>.json`, reviews included. Commit
+a run as the baseline, and compare the next one after a prompt change with the same
+variant. The gap between `probe-on` and `probe-off` is what the probe adds.
+
 ## Tips
 
 - Agents run many shell commands (tests, git). Allowing your test and git commands

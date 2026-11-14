@@ -214,6 +214,15 @@ test('the UI probe runs for probe reviewers, and its new failures block the roun
   assert.match(md, /overflow: page is 600px wide/);
   assert.match(md, /\*\*2 new failure\(s\)\.\*\*/);
 
+  // For the reviewer evals, failures can go to the reviewers instead of blocking.
+  const advisory = prepareRound(root, '001-x', 1, {
+    probeBlocks: false, probe: probe({ status: 'ran', failures: 2, warnings: 1, file, top: [] }),
+  });
+  assert.equal(advisory.ok, true);
+  assert.ok(advisory.run.some((r) => r.name === 'ui'));
+  assert.match(readFileSync(join(jobDir, 'round-1/round.md'), 'utf8'), /\*\*2 new failure\(s\)\*\*, for the reviewers to answer/);
+  assert.doesNotMatch(readFileSync(join(jobDir, 'round-1/round.md'), 'utf8'), /ui-probe/);
+
   // Passing, or skipped: reviewers run, and round.md says what the probe did.
   const passed = prepareRound(root, '001-x', 1, { probe: probe({ status: 'ran', failures: 0, warnings: 3, file }) });
   assert.equal(passed.ok, true);

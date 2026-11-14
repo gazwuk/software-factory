@@ -1,0 +1,118 @@
+{
+  "job": "001-orders-page",
+  "defects": [
+    {
+      "id": "ui-overflow", "lane": "ui", "kind": "measurable",
+      "description": "The orders table has a 720px min-width and no scroll container, so the page scrolls sideways at 320px.",
+      "locations": [{ "file": "styles/orders.css", "lines": [35, 38], "text": "min-width: 720px" }],
+      "probe": { "kind": "overflow" },
+      "state": "default", "keywords": ["overflow", "320", "sideways", "horizontal"]
+    },
+    {
+      "id": "ui-token", "lane": "ui", "kind": "grep",
+      "description": "The page title uses a literal #333 where --color-text exists.",
+      "locations": [{ "file": "styles/orders.css", "lines": [1, 3], "text": "color: #333" }]
+    },
+    {
+      "id": "ui-focus", "lane": "ui", "kind": "measurable",
+      "description": "The icon buttons remove the focus outline with nothing in its place.",
+      "locations": [{ "file": "styles/orders.css", "lines": [83, 85], "text": "outline: none" }],
+      "probe": { "kind": "focus-not-visible", "target": "icon-btn" },
+      "state": "default", "keywords": ["focus"]
+    },
+    {
+      "id": "ui-contrast", "lane": "ui", "kind": "measurable",
+      "description": "The item count uses --color-disabled (2.15:1 on white) for text.",
+      "locations": [
+        { "file": "styles/orders.css", "lines": [47, 51], "text": "var(--color-disabled)" },
+        { "file": "js/orders.js", "lines": [33, 33], "text": "order-meta" }
+      ],
+      "probe": { "kind": "axe", "rule": "color-contrast" },
+      "state": "default", "keywords": ["contrast"]
+    },
+    {
+      "id": "ui-target", "lane": "ui", "kind": "measurable",
+      "description": "The view and delete buttons are 16×16px, 2px apart: under the 24px target size.",
+      "locations": [{ "file": "styles/orders.css", "lines": [66, 75], "text": "width: 16px" }],
+      "probe": { "kind": "axe", "rule": "target-size" },
+      "state": "default", "keywords": ["target", "24"]
+    },
+    {
+      "id": "ux-name", "lane": "ux", "kind": "measurable",
+      "description": "The delete button is an icon with no accessible name.",
+      "locations": [{ "file": "js/orders.js", "lines": [39, 39], "text": "data-action=\"delete\">" }],
+      "probe": { "kind": "axe", "rule": "button-name" },
+      "state": "default", "keywords": ["accessible name", "no name", "unnamed", "label"]
+    },
+    {
+      "id": "ux-confirm", "lane": "ux", "kind": "judgement",
+      "description": "Delete removes the order at once, with no confirmation and no undo.",
+      "locations": [
+        { "file": "js/orders.js", "lines": [60, 66], "text": "method: 'DELETE'" },
+        { "file": "js/orders.js", "lines": [88, 88], "text": "removeOrder(id)" }
+      ]
+    },
+    {
+      "id": "ux-error", "lane": "ux", "kind": "judgement",
+      "description": "A failed load shows a bare \"Something went wrong.\" with no way to recover.",
+      "locations": [{ "file": "js/orders.js", "lines": [19, 28], "text": "Something went wrong." }],
+      "state": "error", "keywords": ["something went wrong", "retry", "recover"]
+    },
+    {
+      "id": "ux-input", "lane": "ux", "kind": "judgement",
+      "description": "The form is reset before the response is checked, so a rejected order loses what was typed.",
+      "locations": [{ "file": "js/orders.js", "lines": [105, 112], "text": "form.reset();" }]
+    },
+    {
+      "id": "ux-dialog-focus", "lane": "ux", "kind": "judgement",
+      "description": "Closing the details dialog (Close or Escape) doesn't put focus back on the button that opened it.",
+      "locations": [
+        { "file": "js/orders.js", "lines": [79, 81], "text": "backdrop.hidden = true;" },
+        { "file": "js/orders.js", "lines": [69, 77], "text": "function openDetails" }
+      ]
+    },
+    {
+      "id": "ux-flow-test", "lane": "ux", "kind": "judgement",
+      "description": "The AC3 flow test calls window.removeOrder() instead of pressing Delete.",
+      "locations": [
+        { "file": "tests/orders.test.js", "lines": [26, 33], "text": "window.removeOrder(1)" },
+        { "file": "js/orders.js", "lines": [67, 67], "text": "window.removeOrder = removeOrder;" }
+      ]
+    },
+    {
+      "id": "ux-empty", "lane": "ux", "kind": "judgement",
+      "description": "The empty state says \"No orders.\" and nothing about what to do next.",
+      "locations": [{ "file": "js/orders.js", "lines": [45, 48], "text": "No orders." }],
+      "state": "empty", "keywords": ["no orders", "empty", "next step"]
+    }
+  ],
+  "controls": [
+    {
+      "id": "c-pill-tokens", "description": "The status pill uses tokens for every value.",
+      "locations": [{ "file": "styles/orders.css", "lines": [53, 60], "text": "var(--color-accent-subtle)" }]
+    },
+    {
+      "id": "c-field-styles", "description": "Inputs use tokens and meet the 24px target.",
+      "locations": [{ "file": "styles/orders.css", "lines": [20, 27], "text": "min-height: var(--target-min)" }]
+    },
+    {
+      "id": "c-field-errors", "description": "Labelled inputs with errors tied by aria-describedby.",
+      "locations": [{ "file": "orders.html", "lines": [26, 35], "text": "aria-describedby=\"total-error\"" }]
+    },
+    {
+      "id": "c-status", "description": "Messages are announced through the role=status region.",
+      "locations": [
+        { "file": "orders.html", "lines": [21, 21], "text": "role=\"status\"" },
+        { "file": "js/orders.js", "lines": [15, 17], "text": "status.textContent = message;" }
+      ]
+    },
+    {
+      "id": "c-flow-test-add", "description": "The AC2 flow test drives the form by label and role.",
+      "locations": [{ "file": "tests/orders.test.js", "lines": [16, 24], "text": "getByLabel('Customer')" }]
+    },
+    {
+      "id": "c-nav", "description": "The Orders link in the main nav.",
+      "locations": [{ "file": "index.html", "lines": [15, 15], "text": "<a href=\"/orders\">Orders</a>" }]
+    }
+  ]
+}

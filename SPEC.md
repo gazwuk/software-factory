@@ -278,7 +278,8 @@ Every agent replies to the orchestrator with one line; the detail is in its file
 4. Picks `escalateModel` if the whole change touches its `escalatePaths`.
 5. If a selected reviewer has `probe: true`, runs `probe.mjs` (see **UI probe**). New
    failures count as a failed check named `ui-probe`: the builder fixes them and no
-   reviewer runs this round.
+   reviewer runs this round. (`prepareRound(..., { probeBlocks: false })`, used only
+   by the reviewer benchmark, reports them to the reviewers instead.)
 6. Writes `round.md` (results, selection table with reasons, a `git diff <since> <head>`
    per selected reviewer, diff stat, the probe's result) and `round.json`, and prints a
    one-line JSON summary.
@@ -572,7 +573,43 @@ template/           # exactly what lands in the user's repo
 README.md
 LICENSE             # MIT
 test/               # node:test — init/update/dashboard, board locks, the runner (with a fake claude) against temp git repos
+test/evals/         # opt-in reviewer benchmark (npm run eval:reviewers); not in the package
 ```
+
+## Reviewer benchmark
+
+`npm run eval:reviewers` (`test/evals/run.mjs`) measures the UI and UX reviewers on
+a fixture with planted defects. It runs real agents, so it isn't part of `npm test`.
+`score.mjs` is pure and is.
+
+- **Fixture (`test/evals/ui/`):** `base/` is main (a static app with design tokens,
+  an orders API and Playwright tests), `change/` is what the job's branch adds or
+  changes (an Orders page), `job/` holds request.md, spec.md (Screens with four
+  routable states, flow criteria), build.md and project.md. `defects.json` lists 12
+  planted defects (`lane`, `kind`, `locations` of `{ file, lines, text }`, plus an
+  optional `probe` matcher, `state` and `keywords`) and the correct `controls`. A unit
+  test checks each location's `text` is in its lines and that no two items overlap.
+- **A run:** a temp repo with base committed on main, the factory installed from
+  `template/` (src/init.js), config set for the variant (only ui and ux enabled, on
+  the variant's model; `ui.serve` empty for probe off; light theme at 320 and 1280px),
+  a worktree with the change committed, and the job folder. Round 1 is prepared by
+  the temp repo's own `round.mjs` with `probeBlocks: false`, so the probe's failures
+  are reported to the reviewers (round.md says so) instead of blocking. Then both
+  reviewers run in parallel through the configured harness with the runner's
+  reviewer prompt, and `checkReview` runs on each.
+- **Scoring:** blocking findings are the numbered items under `## Blocking`. Each one's
+  citations are its `file:line[-line]` references, probe IDs (plus any the review's
+  Probe findings section answers with `blocking #<n>`) and screenshots. A finding
+  finds a defect when a citation overlaps one of its locations, names a probe item
+  matching its `probe` (kind, rule, target substring), or names a screenshot of a
+  visit in its `state` while the finding's words contain one of its `keywords`.
+  Recall is per lane (the reviewer's own), precision is matched findings ÷ blocking
+  findings, and a false positive is a finding that matches no defect but cites a
+  control.
+- **Output:** per variant (`probe-on|off` × model), `--runs` runs (default 3), the
+  mean and range of each metric, combined recall, probe recall, per-defect hit counts
+  and cost from usage.mjs prices. Written to
+  `test/evals/results/<date>-<variant>.json` with the review texts.
 
 ## Changes from the reference
 
