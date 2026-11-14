@@ -620,9 +620,21 @@ function git(args, cwd) {
  * worktree's node_modules instead, which is refused when the change touches
  * dependency files, since the base couldn't run on the branch's packages.
  */
+/**
+ * The dependency files the work in a worktree changes since mergeBase. Uncommitted and
+ * untracked ones count, since the builder runs the probe before committing.
+ */
+export function depChanges(worktree, mergeBase) {
+  const nul = (text) => text.split('\0').filter(Boolean);
+  return [
+    ...nul(git(['diff', '-z', '--name-only', mergeBase], worktree)),
+    ...nul(git(['ls-files', '-z', '--others', '--exclude-standard'], worktree)),
+  ].filter((f) => DEP_FILES.test(f));
+}
+
 function baseCheckout(root, id, worktree, mergeBase, settings) {
   if (!settings.setup) {
-    const deps = git(['diff', '--name-only', mergeBase, 'HEAD'], worktree).split('\n').filter((f) => DEP_FILES.test(f));
+    const deps = depChanges(worktree, mergeBase);
     if (deps.length) return { error: `the change touches ${deps.join(', ')} and \`worktree.setup\` isn't set to install the base's packages` };
   }
   const dir = join(root, '.factory-worktrees', `${id}.probe-base`);

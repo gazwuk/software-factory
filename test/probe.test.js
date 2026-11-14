@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { DEFAULTS, compareWithBase, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, startupVisit, tally } from '../template/.claude/skills/factory/probe.mjs';
+import { DEFAULTS, compareWithBase, depChanges, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, startupVisit, tally } from '../template/.claude/skills/factory/probe.mjs';
 
 const SPEC = `# Billing
 
@@ -207,4 +211,25 @@ test('an app that won\'t start blocks if the base starts, and is unverified if i
   assert.deepEqual(reviewGaps({ probe: unknown, review: '', name: 'ux', running: both }), ['U1']);
   assert.deepEqual(reviewGaps({ probe: unknown, review: '## Probe findings\n- U1 — blocking #1\n', name: 'ux', running: both }), []);
   assert.deepEqual(reviewGaps({ probe: unknown, review: '', name: 'ui', running: both }), []);
+});
+
+test('depChanges sees dependency changes before they are committed', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'factory-probe-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir }).toString().trim();
+  git('init', '-q');
+  mkdirSync(join(dir, 'web'));
+  writeFileSync(join(dir, 'package.json'), '{}\n');
+  writeFileSync(join(dir, 'app.js'), 'x\n');
+  git('add', '.');
+  git('commit', '-qm', 'base');
+  const base = git('rev-parse', 'HEAD');
+  writeFileSync(join(dir, 'app.js'), 'y\n');
+  assert.deepEqual(depChanges(dir, base), []);
+  writeFileSync(join(dir, 'package.json'), '{"dependencies":{"a":"1"}}\n');
+  writeFileSync(join(dir, 'web/yarn.lock'), '# new\n');
+  assert.deepEqual(depChanges(dir, base).sort(), ['package.json', 'web/yarn.lock']);
+  git('add', '.');
+  git('commit', '-qm', 'deps');
+  assert.deepEqual(depChanges(dir, base).sort(), ['package.json', 'web/yarn.lock']);
 });

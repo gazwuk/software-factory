@@ -343,7 +343,8 @@ and UX reviewers' checklists into measurements.
   out the merge base beside the worktree, prepares it like a job worktree
   (`config.worktree`), serves it, and repeats those visits. A finding the base has
   too is `pre-existing`. With no `worktree.setup`, the base borrows the worktree's
-  `node_modules` instead, so a change to dependency files can't be compared. If the
+  `node_modules` instead, so a change to dependency files (committed or not) can't be
+  compared. If the
   base can't be prepared or won't start, the findings are `unverified`: reported, but
   not blocking. If the head won't start and the base does, that alone
   is a blocking failure; if neither starts, the startup failure is itself an
