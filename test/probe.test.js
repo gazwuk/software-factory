@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { DEFAULTS, compareWithBase, depChanges, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, shotName, startupVisit, tabStep, tally } from '../template/.claude/skills/factory/probe.mjs';
+import { DEFAULTS, capNodes, compareWithBase, depChanges, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, shotName, startupVisit, tabStep, tally } from '../template/.claude/skills/factory/probe.mjs';
 
 const SPEC = `# Billing
 
@@ -113,6 +113,22 @@ test('only failures the merge base lacks block; without a base they are unverifi
   const alone = head();
   compareWithBase(alone, null);
   assert.deepEqual(tally(alone), { failures: 0, preExisting: 0, unverified: 2, warnings: 1 });
+});
+
+test('capNodes trims axe nodes only after the base comparison, keeping new ones', () => {
+  const button = (i) => ({ kind: 'axe', rule: 'button-name', target: `button:nth-of-type(${i})`, level: 'fail', message: 'no name' });
+  const base = [visitWith('/a|default|1280|light', [1, 2, 3, 4, 5].map(button))];
+  const head = [visitWith('/a|default|1280|light', [1, 2, 3, 4, 5, 6].map(button))];
+  compareWithBase(head, base);
+  capNodes(head, 3);
+  const kept = head[0].findings;
+  assert.deepEqual(kept.map((f) => `${f.target} ${f.origin}`), [
+    'button:nth-of-type(1) pre-existing', 'button:nth-of-type(2) pre-existing', 'button:nth-of-type(3) pre-existing',
+    'button:nth-of-type(6) new',
+  ]);
+  assert.equal(kept[2].more, 2);
+  assert.equal(tally(head).failures, 1);
+  assert.match(renderProbe({ id: '001-x', round: 1, status: 'ran', visits: head, unreached: [] }), /and 2 more element\(s\) like it/);
 });
 
 test('renderProbe reports skips and groups findings by screen', () => {

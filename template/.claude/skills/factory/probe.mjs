@@ -139,6 +139,26 @@ export function compareWithBase(head, base) {
 }
 
 /**
+ * Keeps `max` nodes of each axe rule per visit, with a count of the rest on the last
+ * one kept. It runs after compareWithBase has seen every node, and caps new,
+ * pre-existing and unverified nodes apart, so a new one never hides behind old ones.
+ */
+export function capNodes(visits, max = AXE_NODES) {
+  for (const v of visits) {
+    const kept = new Map();
+    v.findings = v.findings.filter((f) => {
+      if (f.kind !== 'axe') return true;
+      const k = `${f.rule}|${f.origin || f.level}`;
+      const g = kept.get(k) || { n: 0, last: null };
+      kept.set(k, g);
+      if (g.n++ < max) { g.last = f; return true; }
+      g.last.more = (g.last.more || 0) + 1;
+      return false;
+    });
+  }
+}
+
+/**
  * The visit that stands for an app that didn't start. If the merge base starts, the
  * change broke it, which blocks. If the base doesn't start either, or couldn't be
  * prepared, it's unverified: it doesn't block, but the ux reviewer must answer it.
@@ -276,7 +296,7 @@ function findingTable(items) {
   const out = ['| ID | Lane | Screen | Where | What | Detail |', '|---|---|---|---|---|---|'];
   for (const { id, lane, f, v, at } of items) {
     const what = f.kind === 'axe' ? `axe \`${f.rule}\` (${f.impact})` : f.kind;
-    const detail = [f.message, f.target && `\`${f.target}\``, f.detail].filter(Boolean).join(' — ');
+    const detail = [f.message, f.target && `\`${f.target}\``, f.detail, f.more && `and ${f.more} more element(s) like it`].filter(Boolean).join(' — ');
     out.push(`| ${id} | ${lane} | \`${v.path}\` (${v.state}) | ${at.join(', ')} | ${what} | ${cell(detail)} |`);
   }
   return out;
@@ -478,11 +498,11 @@ function readFocus() {
   };
 }
 
-async function runAxe([tags, nodes]) {
+async function runAxe(tags) {
   const result = await window.axe.run(document, { runOnly: { type: 'tag', values: tags }, resultTypes: ['violations'] });
   return result.violations.map((v) => ({
     id: v.id, impact: v.impact, help: v.help, helpUrl: v.helpUrl, cats: v.tags.filter((t) => t.startsWith('cat.')),
-    nodes: v.nodes.slice(0, nodes).map((n) => ({ target: n.target.join(' '), summary: (n.failureSummary || '').split('\n').map((l) => l.trim()).filter((l) => l && !/^Fix (any|all) of the following:$/.test(l)).slice(0, 2).join(' ') })),
+    nodes: v.nodes.map((n) => ({ target: n.target.join(' '), summary: (n.failureSummary || '').split('\n').map((l) => l.trim()).filter((l) => l && !/^Fix (any|all) of the following:$/.test(l)).slice(0, 2).join(' ') })),
   }));
 }
 
@@ -555,7 +575,7 @@ async function visit(browser, origin, v, ctx) {
     m.overflow = await page.evaluate(measureOverflow);
     m.cls = await page.evaluate(() => window.__factoryCls ?? null);
     await page.evaluate(ctx.axeSource);
-    m.axe = await page.evaluate(runAxe, [AXE_TAGS, AXE_NODES]);
+    m.axe = await page.evaluate(runAxe, AXE_TAGS);
     if (ctx.shots) {
       const file = join(ctx.shots, shotName(v));
       const height = await page.evaluate(() => document.documentElement.scrollHeight);
@@ -713,6 +733,7 @@ export async function runProbe({ root, id, round = null, outDir = null }) {
   const r = { id, round, sha, serve: ui.serve, status: 'ran', reason: null, visits: [], unreached: [], dropped: 0 };
 
   const finish = () => {
+    capNodes(r.visits);
     if (r.status === 'ran') Object.assign(r, tally(r.visits));
     writeFileSync(join(outDir, 'probe.json'), `${JSON.stringify(r, null, 2)}\n`);
     writeFileSync(join(outDir, 'probe.md'), renderProbe(r));
