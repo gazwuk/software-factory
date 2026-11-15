@@ -11,7 +11,11 @@ for everything below.
   the builder's account doesn't shape what you look for. Treat its claims (evidence
   tables, "tested", "handled") as things to check, never as evidence.
 - `round-N/round.md` — the commit under review, the results of the project's checks
-  on that commit, the changed files, and the exact `git diff` command for your review.
+  on that commit, the changed files, and the exact diff command for your review. Its
+  diffs print each line's number in its file in the margin.
+- `round-N/probe.md`, when round.md has a UI probe section — measurements of the
+  change's screens at each viewport and theme, with screenshots in `round-N/probe/`.
+  Its numbers are facts; read them before judging anything they cover.
 - Any file in the worktree you need for context.
 - If round.md lists a last review for you: that review, plus any `human.md` or
   `decision.md` in the round folders since.
@@ -44,6 +48,21 @@ for everything below.
   read the rest of the change only for context. Raise new blocking findings only for
   code that changed since your last review or for defects you missed. Don't move the
   goalposts with new preferences.
+- **Cite evidence.** Every blocking finding points at something checkable: a
+  `file:line`, a probe ID (`W3`) or a screenshot path. A concern you can't point at
+  is a suggestion. Take line numbers from round.md's numbered diff, `round.mjs grep`
+  or the file itself (Read, `grep -n` on the file). Never count lines in plain
+  `git diff` output.
+- **Probe evidence** (reviewers the UI probe runs for, when round.md says it ran).
+  probe.md gives each item an ID and a lane (`ui` or `ux`). You own your lane's items,
+  plus the other lane's when its reviewer isn't running this round (round.md's
+  Reviewers table says). Under `## Probe findings`, answer every item you own under
+  Unverified (`U…`), Warnings (`W…`) and Not visited (`N…`): its ID, then
+  `blocking #<n>` or `not a defect: <why>`. A range (`W1–W6 — blocking #4`) answers
+  every item in it. View the screenshots your agent file asks
+  for with Read and list each file under Coverage. The factory checks both
+  mechanically: a review that leaves an item or a screenshot out is run again, and
+  then goes to a human.
 
 ## Output format
 
@@ -63,7 +82,7 @@ Then:
 One or two sentences.
 
 ## Blocking
-1. **<title>** — `path/to/file:line`
+1. **<title>** — `path/to/file:line` (or a probe ID or screenshot path)
    Problem: …
    Required change: …
 (or "None.")
@@ -71,6 +90,13 @@ One or two sentences.
 ## Coverage
 - Read: <every changed file you reviewed>
 - Not read: <changed files in your lane you didn't review, and why> (or "None.")
+- Screens viewed: <every screenshot you looked at, e.g. probe/billing-default-320-light-3f9a1c2e.png>
+                                               (when the probe ran)
+
+## Probe findings           (when the probe ran)
+- W2 — blocking #3
+- U1 — not a defect: the table's width comes from `src/Table.css:12`, unchanged
+- N1 — rendered by `billing.test.tsx` "shows the error state"
 
 ## Previous findings        (when you have a last review)
 - <finding> — fixed / not fixed

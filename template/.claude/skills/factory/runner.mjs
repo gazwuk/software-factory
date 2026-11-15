@@ -20,6 +20,8 @@ import {
   tryLock, unlock, updateJob, withLockAsync, writeJsonAtomic,
 } from './board.mjs';
 import { rebuildSummary, recordRun, refreshJob } from './usage.mjs';
+import { checkReview } from './probe.mjs';
+import { isReady } from './worktree.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ACTIVE = new Set(['spec', 'build', 'review', 'approval']);
@@ -80,11 +82,16 @@ export function readFacts(root, config, job) {
   const head = gitTry(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], root) || null;
   const build = readText(p.build);
   const reviews = {};
-  for (const name of job.reviewers || []) reviews[name] = verdictOf(join(p.round(n), `review-${name}.md`));
+  // A probe reviewer's review that leaves out probe items counts as not written.
+  for (const name of job.reviewers || []) {
+    const verdict = verdictOf(join(p.round(n), `review-${name}.md`));
+    reviews[name] = verdict && checkReview(root, job.id, n, name).ok ? verdict : null;
+  }
   const decision = readText(p.decision) ?? '';
   return {
     spec: existsSync(p.spec),
-    worktree: existsSync(p.worktree),
+    // Prepared too (worktree.mjs): links made and setup run.
+    worktree: existsSync(p.worktree) && isReady(p.worktree),
     head,
     ahead: head ? Number(gitTry(['rev-list', '--count', `${config.baseBranch}..${branch}`], root) || 0) : 0,
     build: build !== null,
@@ -180,7 +187,7 @@ export const prompts = {
     ].join('\n');
   },
 
-  reviewer: (p, job, base, name, n) => [
+  reviewer: (p, job, base, name, n, gaps = []) => [
     `Review round ${n} of factory job ${job.id}: ${job.title}.`,
     `- Reviewer contract: ${p.contract}`,
     `- Job folder: ${p.jobDir}/`,
@@ -190,6 +197,10 @@ export const prompts = {
     `- Worktree: ${p.worktree} (branch factory/${job.id}, baseBranch ${base})`,
     `- Round file: ${join(p.round(n), 'round.md')}`,
     `- Output: ${join(p.round(n), `review-${name}.md`)}`,
+    ...(gaps.length ? [
+      '',
+      `Your last review there left out ${gaps.join(', ')}. Read it, answer each probe item under \`## Probe findings\`, view each screenshot and list it under \`## Coverage\` (see the contract's Probe evidence rule), and rewrite the file.`,
+    ] : []),
     'Reply with one line.',
   ].join('\n'),
 
@@ -215,7 +226,11 @@ export function agentTools(root, agent) {
 
 // ---------- actions ----------
 
-/** Runs an agent until done() holds, at most TRIES times. Records its cost each time. */
+/**
+ * Runs an agent until done() returns true, at most TRIES times. Records its cost each
+ * time. done() may return a string saying what's missing instead of false; prompt may
+ * be a function of the attempt number.
+ */
 async function agentStep(ctx, job, { agent, model, prompt, round = null, done }) {
   const { root, config, signal } = ctx;
   const p = paths(root, job);
@@ -230,7 +245,8 @@ async function agentStep(ctx, job, { agent, model, prompt, round = null, done })
     const step = begin(ctx, job.id, agent, model);
     let release = () => {};
     const result = await ctx.harness.runAgent({
-      root, agent, model, prompt, tools: agentTools(root, agent), options: config.runner, signal,
+      root, agent, model, prompt: typeof prompt === 'function' ? prompt(attempt) : prompt,
+      tools: agentTools(root, agent), options: config.runner, signal,
       onSpawn: (pid) => { release = track(ctx, job.id, pid); },
       onActivity: (text) => step.note(short(text)),
     }).finally(() => { release(); step.end(); });
@@ -245,8 +261,10 @@ async function agentStep(ctx, job, { agent, model, prompt, round = null, done })
       } catch (err) { ctx.log(job.id, `couldn't record ${agent}'s cost: ${err.message}`); }
     }
     signal.throwIfAborted();
-    if (done()) return true;
-    ctx.log(job.id, `${agent}: ${result.error || "didn't write its file"}${attempt < TRIES ? '; running it again' : ''}`);
+    const finished = done();
+    if (finished === true) return true;
+    const why = result.error || (typeof finished === 'string' ? finished : "didn't write its file");
+    ctx.log(job.id, `${agent}: ${why}${attempt < TRIES ? '; running it again' : ''}`);
   }
   return false;
 }
@@ -267,16 +285,33 @@ async function perform(ctx, job, action, facts) {
       return;
     }
 
-    case 'worktree':
+    case 'worktree': {
       await ctx.git(() => {
         if (existsSync(p.worktree)) return; // added just before a restart
         gitTry(['worktree', 'prune'], root);
         if (facts.head) git(['worktree', 'add', p.worktree, `factory/${id}`], root);
         else git(['worktree', 'add', p.worktree, '-b', `factory/${id}`, base], root);
       });
+      // Links gitignored files and runs config.worktree.setup, which can be as heavy
+      // as the checks (an install), so it shares their limit.
+      const out = await ctx.checks(() => {
+        signal.throwIfAborted();
+        const step = begin(ctx, id, 'worktree setup', null, config.worktree?.setup || null);
+        let release = () => {};
+        return runNode(join(HERE, 'worktree.mjs'), [id], {
+          cwd: root, signal, onSpawn: (pid) => { release = track(ctx, id, pid); },
+        }).finally(() => { release(); step.end(); });
+      });
+      signal.throwIfAborted();
+      const prep = out.code === 0 ? JSON.parse(out.stdout.trim().split('\n').pop()) : null;
+      if (!prep?.ok) {
+        const why = prep?.error || out.stderr.trim().split('\n').pop() || `worktree.mjs exited ${out.code}`;
+        return needsHuman(ctx, id, `worktree setup failed: ${why}`);
+      }
       if (job.stage === 'spec') updateJob(root, id, { stage: 'build' });
-      ctx.log(id, `worktree ready on factory/${id}`);
+      ctx.log(id, `worktree ready on factory/${id}${prep.links.length ? `; linked ${prep.links.join(', ')}` : ''}${prep.setup ? `; setup took ${prep.setup.seconds}s` : ''}`);
       return;
+    }
 
     case 'build': {
       const { step } = action;
@@ -349,20 +384,27 @@ async function perform(ctx, job, action, facts) {
       // WAIT FOR ALL: every reviewer in the round finishes before anything else happens.
       const missed = await Promise.all(action.reviewers.map(async ({ name, model }) => {
         const out = join(p.round(action.n), `review-${name}.md`);
+        let gaps = [];
         const ok = await agentStep(ctx, job, {
           agent: `review-${name}`, model, round: action.n,
-          prompt: prompts.reviewer(p, job, base, name, action.n),
-          done: () => verdictOf(out) !== null,
+          // A retry after a review that left out probe items is told which ones.
+          prompt: (attempt) => prompts.reviewer(p, job, base, name, action.n, attempt > 1 ? gaps : []),
+          done: () => {
+            if (verdictOf(out) === null) return false;
+            gaps = checkReview(root, id, action.n, name).missing;
+            return gaps.length ? `review left out ${gaps.join(', ')}` : true;
+          },
         });
         const verdict = verdictOf(out);
         if (verdict) {
           updateJob(root, id, (j) => { (j.rounds[action.n - 1] ||= {})[name] = verdict; });
           ctx.log(id, `round ${action.n}: ${name} ${verdict}`);
         }
-        return ok ? null : name;
+        if (ok) return null;
+        return verdict ? `reviewer ${name}'s review left out ${gaps.join(', ')} in round ${action.n}` : `reviewer ${name} produced no verdict in round ${action.n}`;
       }));
-      const names = missed.filter(Boolean);
-      if (names.length) await needsHuman(ctx, id, `reviewer ${names.join(', ')} produced no verdict in round ${action.n}`);
+      const notes = missed.filter(Boolean);
+      if (notes.length) await needsHuman(ctx, id, notes.join('; '));
       return;
     }
 

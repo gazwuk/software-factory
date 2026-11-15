@@ -26,6 +26,9 @@ only what's in these files and the branch.
   or `cd <worktree> && …` in each Bash command.
 - Never touch `factory/` or `.claude/` in the worktree, or anything in the main
   checkout except your `build.md`.
+- Some gitignored files in the worktree (`.env` and the like, from
+  `config.worktree.link`) are symlinks into the main checkout. Read them, but never
+  edit, move or delete them: that would change the user's own files.
 - Commit on `factory/<id>` with messages like `factory(<id>): <what>`. Never merge,
   rebase onto other branches, push, or switch branches.
 
@@ -47,9 +50,19 @@ read narrowly:
 
 1. Read spec.md and project.md, then the code you'll change (see Reading code).
 2. Implement the scope — nothing more. Follow the repo's conventions.
-3. Write tests that cover every acceptance criterion.
+3. Write tests that cover every acceptance criterion. For a `(flow)` criterion, the
+   test drives its steps through the rendered UI, finds each control by the label
+   the step names, and asserts every `Expect:` line. Make each state in the spec's
+   **Screens** reachable the way it says.
 4. Run the project's test, lint and type-check commands from project.md. Fix what
-   fails.
+   fails. Entries in `factory/config.json` `checks` that are objects (such as
+   `ui-tokens` and `ui-a11y`) are gates that lint only your change. Run each with
+   `node <repo root>/.claude/skills/factory/round.mjs check <name> <worktree>`,
+   which runs it as the round will (uncommitted work included), and fix every
+   problem in its `output`. If spec.md has **Screens** and `factory/config.json` sets `ui.serve`, also
+   run the UI probe: `node <repo root>/.claude/skills/factory/probe.mjs <job id>`.
+   It prints the path of its report; fix every failure listed there. The same probe
+   runs before the reviewers, and its failures send the job back to you.
 5. Commit everything. Leave no uncommitted changes: the orchestrator re-runs the
    checks on your last commit and won't start a review on a dirty worktree.
 6. Write `<job folder>/build.md`:

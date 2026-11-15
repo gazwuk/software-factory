@@ -42,7 +42,8 @@ Node >= 18.
 - Requires a git repo with at least one commit; refuses otherwise.
 - Refuses if `.claude/skills/factory/` already exists (points to `update`).
 - Copies `template/` into the repo, never overwriting an existing file.
-- Appends to `.gitignore`: `factory/board.json`, `factory/usage.json`, `.factory-worktrees/`.
+- Appends to `.gitignore`: `factory/board.json`, `factory/usage.json`, `factory/.locks/`,
+  `factory/activity/`, `.factory-worktrees/`, `factory/jobs/*/round-*/probe/` (probe screenshots).
 - Adds an async `SubagentStop` hook (matcher `^factory-`) running `usage.mjs` to
   `.claude/settings.json`, creating the file if needed. `update` adds it if missing.
 - Writes `factory/.manifest.json` (package version + hash of every package-owned file).
@@ -68,6 +69,8 @@ Node >= 18.
     reviewer-contract.md             # rules every reviewer follows       [package]
     templates/reviewer.md            # scaffold for custom reviewers      [package]
     round.mjs                        # checks gate + reviewer selection   [package]
+    probe.mjs                        # UI probe: renders and measures screens [package]
+    worktree.mjs                     # prepares new worktrees (links, setup) [package]
     usage.mjs                        # cost tracking (SubagentStop hook)  [package]
     board.mjs                        # locked board writes, job id claims [package]
     runner.mjs                       # headless runner                    [package]
@@ -97,6 +100,8 @@ factory/
     build.md
     round-1/round.md                 # checks, selected reviewers and why, diff commands
     round-1/round.json               # state for the next round's selection
+    round-1/probe.md, probe.json     # UI probe report, when it ran
+    round-1/probe/*.png              # probe screenshots                 [gitignored]
     round-1/review-<reviewer>.md
     round-2/...                      # may also hold human.md and an earlier decision.md after a rework
     decision.md
@@ -118,12 +123,23 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
     "githubLabel": "factory"
   },
   "checks": { "test": "npm test", "lint": "npm run lint" },
+  "worktree": { "link": [".env.local"], "setup": "npm ci --prefer-offline" },
   "runner": {
     "headless": false,
     "harness": "claude-code",
     "parallel": 1,
     "maxParallelChecks": 1,
     "permissionMode": "dontAsk"
+  },
+  "ui": {
+    "serve": "npm run dev -- --port {port}",
+    "url": "http://localhost:{port}",
+    "readyTimeout": 120,
+    "viewports": [320, 768, 1280],
+    "themes": ["light", "dark"],
+    "storageState": null,
+    "maxVisits": 60,
+    "tabStops": 30
   },
   "models": {
     "spec-writer": "opus",
@@ -134,8 +150,8 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
   "reviewers": {
     "security": { "model": "sonnet", "enabled": true,
                   "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json"] },
-    "ux":       { "model": "sonnet", "enabled": true, "paths": ["**/components/**", "**/pages/**"] },
-    "ui":       { "model": "sonnet", "enabled": true, "paths": ["*.{css,scss,tsx}"] },
+    "ux":       { "model": "sonnet", "enabled": true, "probe": true, "paths": ["**/components/**", "**/pages/**"] },
+    "ui":       { "model": "sonnet", "enabled": true, "probe": true, "paths": ["*.{css,scss,tsx}"] },
     "code":     { "model": "sonnet", "enabled": true }
   }
 }
@@ -147,13 +163,19 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
   orchestrator passes the model when spawning each agent.
 - Each key in `reviewers` maps to `.claude/agents/factory-review-<key>.md`.
 - `checks`: name → shell command, run in the worktree by `round.mjs` before every
-  review round. Written by `/factory setup`.
+  review round. Written by `/factory setup`. A check can instead be a gate that sees
+  only the change, `{ "command", "files", "scope" }` (see **Static UI gates**).
+- `worktree`: how a new worktree is made runnable (see **Worktrees and git**).
+  `link`: gitignored paths symlinked in from the main checkout; `setup`: a command
+  run once in it. Written by `/factory setup`, which asks before linking anything.
 - `reviewers.<key>.paths` (optional globs): the reviewer runs only when the change
   touches matching files. Absent = every change.
 - `reviewers.<key>.escalatePaths` + `escalateModel` (optional): use `escalateModel`
   when the whole change touches matching files.
 - `tasks.source`: where `/factory next` and `/factory backlog` read and write tasks —
   `"backlog"` (factory/backlog.md) or `"github"` (issues labelled `tasks.githubLabel`).
+- `reviewers.<key>.probe` (optional): the UI probe runs before this reviewer, see
+  **UI probe**. `ui` configures it; an empty `ui.serve` turns it off.
 - `runner`: see **Runner**. `command` (optional) replaces the `claude` binary.
 
 ## The loop
@@ -178,7 +200,7 @@ feature
 
 | Command | Does |
 |---|---|
-| `/factory setup` | Inspect the repo; write `project.md` (language, test/lint/typecheck commands, conventions, has-UI?); write `checks`; disable ux/ui if there's no UI, else tune their `paths` and security's `escalatePaths`. Re-runnable. |
+| `/factory setup` | Inspect the repo; write `project.md` (language, test/lint/typecheck commands, conventions, has-UI?); write `checks`; disable ux/ui if there's no UI, else tune their `paths` and security's `escalatePaths`; propose static UI gates (asks before installing). Re-runnable. |
 | `/factory <feature>` | Start a new job now. |
 | `/factory backlog <feature>` | Shape the text into a well-formed task (asks up to 3 questions, proposes a split if too big) and queue it. Doesn't start a job. |
 | `/factory backlog` | List the queue. |
@@ -236,26 +258,121 @@ own output file. Every agent reads `factory/project.md`.
 
 | Agent | Reads | Writes |
 |---|---|---|
-| spec-writer | request.md, repo | `spec.md`: goal, scope, out of scope, numbered acceptance criteria |
+| spec-writer | request.md, repo | `spec.md`: goal, scope, out of scope, screens and their states, numbered acceptance criteria (user flows as `(flow)` steps) |
 | builder | spec.md, latest round folder (if any), rework note | code + tests in the worktree, commits on `factory/<job-id>`; `build.md`: what changed, how each acceptance criterion is met, test output |
-| reviewer-* | spec.md, build.md, round.md (checks + its diff range), worktree | `round-N/review-<name>.md`, first line `VERDICT: PASS` or `VERDICT: CHANGES`, then findings |
+| reviewer-* | spec.md, build.md, round.md (checks + its diff range), probe.md when the probe ran, worktree | `round-N/review-<name>.md`, first line `VERDICT: PASS` or `VERDICT: CHANGES`, then findings |
 | approver | everything in the job folder, diff, final round.md (re-runs checks only if the branch moved) | `decision.md`, first line `APPROVE` or `ESCALATE`, then reasoning |
 
 Every agent replies to the orchestrator with one line; the detail is in its file.
 
 **Round preparation (`round.mjs`):** deterministic, no model. Per round it:
 
-1. Refuses a dirty worktree, then runs `config.checks` in it on the branch head.
-   Failures go back to the builder (the stage stays `review`, no round is used up);
-   after two failed fixes the job goes to needs-human.
+1. Refuses a dirty worktree, then runs `config.checks` in it on the branch head
+   (gates on the change's files only, see **Static UI gates**). Failures go back to
+   the builder (the stage stays `review`, no round is used up); after two failed
+   fixes the job goes to needs-human.
 2. For each of the job's reviewers, finds the commit it last passed at (`since`; the
    merge base if never), carried through rounds where it was skipped.
 3. Selects it if its last verdict was CHANGES or missing, or if files matching its
    `paths` (all files when unset) changed between `since` and the head.
 4. Picks `escalateModel` if the whole change touches its `escalatePaths`.
-5. Writes `round.md` (results, selection table with reasons, a `git diff <since> <head>`
-   per selected reviewer, diff stat) and `round.json`, and prints a one-line JSON
-   summary.
+5. If a selected reviewer has `probe: true`, runs `probe.mjs` (see **UI probe**). New
+   failures count as a failed check named `ui-probe`: the builder fixes them and no
+   reviewer runs this round. (`prepareRound(..., { probeBlocks: false })`, used only
+   by the reviewer benchmark, reports them to the reviewers instead.)
+6. Writes `round.md` (results, selection table with reasons, a diff command from
+   `<since>` to `<head>` per selected reviewer, diff stat, the probe's result) and
+   `round.json`, and prints a one-line JSON summary. The diff commands are
+   `round.mjs diff <worktree> <from> <to> [<path>...]`, which prints the diff with
+   each line's number in its file in the margin, so reviewers cite real lines.
+
+**Static UI gates:** checks in `config.checks` that lint only what the change
+touches, so a rule can be switched on without fixing the whole repo first.
+
+- **Shape:** `{ "command": "npx eslint -c factory/lint/eslint.config.mjs {files}",
+  "files": ["*.{jsx,tsx}"], "scope": "lines" }`. `{files}` becomes the files changed
+  since the merge base (deleted ones left out) that match `files` (all of them
+  without it), shell-quoted. No matching files → the gate is skipped and passes.
+- **`scope: "lines"`:** when the command fails, round.mjs reads the problem
+  locations in its output: `path:line[:col]: …` lines (`unix` formatters), or a line
+  holding a path followed by indented `line:col …` lines (eslint's `stylish`,
+  stylelint's `string`). Only problems on lines the change added or changed (by
+  `git diff -U0`; every line of a new file) fail it, and round.md shows only those.
+  Older ones are counted in the result's note. Output with no locations at all fails
+  as it is. Without `scope`, any failure fails.
+- **Trying one:** `round.mjs check <name> <worktree> [<base>]` (and `tryCheck()`)
+  runs one check as a round would, on the worktree including uncommitted and
+  untracked work, against the merge base with `base` (baseBranch by default), and
+  prints its result as JSON. Setup proves gates with it, and the builder runs gates
+  with it before committing.
+- **Which:** `/factory setup` proposes, and installs only if the user says yes,
+  `ui-tokens` (`stylelint-declaration-strict-value` for the properties the repo has
+  design tokens for) and `ui-a11y` (`eslint-plugin-jsx-a11y`,
+  `eslint-plugin-vuejs-accessibility`, or `eslint-plugin-svelte`'s
+  `svelte/valid-compile`), with their configs in `factory/lint/`. It proves each in
+  the `setup-check` worktree: skipped with no matching change, fails on one new
+  literal colour or `<div onClick>`, passes when that line uses the token, with older
+  problems ignored. project.md's Interface records each gate and what it covers.
+- **Limit:** a problem the change causes on a line it didn't touch (removing a
+  `<label>` leaves its input unlabelled) isn't caught. The reviewers still read for
+  those.
+
+**UI probe (`probe.mjs`):** deterministic, no model; web UIs only. It turns the UI
+and UX reviewers' checklists into measurements.
+
+- **What it visits:** the rows of spec.md's `## Screens` table whose screen is a route.
+  The `default` state is opened at the route; other states at the first backticked
+  `/path` in "How to reach it". Rows it can't open are listed as not visited. Each is
+  opened at every `ui.viewports` width (800px tall) in every `ui.themes` theme, capped
+  at `ui.maxVisits`.
+- **How:** starts `ui.serve` in the worktree on a free port (`{port}` and `PORT`),
+  waits for `ui.url` to answer, and drives Chromium through the repo's own
+  `playwright` and `axe-core` (none of the package's dependencies). Missing tools, no
+  `ui.serve` or no screens → `skipped`, and reviewers work from the diff.
+- **What it measures, per visit:** the page's HTTP status; uncaught page errors;
+  console errors and failed requests; sideways overflow (`scrollWidth` beyond the
+  viewport, with the outermost elements causing it); axe-core violations for WCAG 2.2
+  A/AA (which include contrast and target size); cumulative layout shift; and a
+  screenshot. Once per screen and state (widest viewport, first theme) it walks the
+  Tab order, recording each stop's role, name and selector, whether its computed
+  style changes on focus, and focus traps.
+- **What blocks:** a page that fails to load or returns 4xx/5xx (unless the state is
+  an error or not-found state), a page error, overflow, and serious or critical axe
+  violations. Everything else is a warning for reviewers to judge.
+- **Only new failures block.** When the head has blocking findings, the probe checks
+  out the merge base beside the worktree, prepares it like a job worktree
+  (`config.worktree`), serves it, and repeats those visits. A finding the base has
+  too is `pre-existing`. With no `worktree.setup`, the base borrows the worktree's
+  `node_modules` instead, so a change to dependency files (committed or not) can't be
+  compared. If the
+  base can't be prepared or won't start, the findings are `unverified`: reported, but
+  not blocking. If the head won't start and the base does, that alone
+  is a blocking failure; if neither starts, the startup failure is itself an
+  unverified item, so a reviewer must answer it.
+- **Output:** `probe.md` (failures, unverified, pre-existing, warnings, visits not
+  made, a table of every visit with its screenshot, Tab orders), `probe.json` and
+  `probe/*.png`. With no round argument (the builder checking its own work) it writes
+  to a temp folder. probe.md and probe.json are committed with the job, so what they
+  quote from the page and the server is redacted first (`redact()`): URL credentials,
+  query strings and fragments, secret-looking query parameters, bearer tokens, JWTs,
+  emails and long opaque path segments. Screenshots are gitignored and aren't.
+- **IDs and lanes:** each item in probe.md has an ID: `F` blocking, `U` unverified, `P`
+  pre-existing, `W` warning, `N` not visited, numbered in order. Each also has a lane
+  that names the reviewer who answers for it. `ux` covers whether the page works and
+  can be operated: load and status failures, page and console errors, failed
+  requests, focus traps, unvisited states, and axe rules in the keyboard,
+  name-role-value, forms and ARIA categories. `ui` covers everything else: overflow,
+  layout shift, focus visibility and the other axe rules (contrast, text
+  alternatives, structure, target size, …).
+- **Checking a review:** `probe.mjs check-review <id> <n> <reviewer>` (and
+  `checkReview()`) lists what a probe reviewer's review leaves out. It must answer
+  every U, W and N item in the lanes it owns under `## Probe findings` (a range such
+  as `W1–W6` answers each item in it), and list
+  under `## Coverage` every screenshot it owes: all of them for the `ui` lane, and
+  the Tab-order visits for `ux`. A reviewer owns its own lane, plus any lane whose
+  reviewer isn't running this round. The runner counts a review with gaps as not
+  written: it re-runs the reviewer once, telling it what's missing, and then the job
+  goes to needs-human. The orchestrator does the same with the CLI.
 
 **Builder lifecycle:** a fresh builder for every step — first build, each check fix,
 each review round, each rework — never resumed with SendMessage. A resumed builder
@@ -266,9 +383,26 @@ Check and review fixes run on `models["builder-fix"]` (Sonnet by default); the f
 build and human rework on `models.builder`.
 
 **Reviewer contract:** the shared rules (inputs, read-only, blocking vs
-non-blocking, converge in later rounds, output format) live once in
-`reviewer-contract.md`. Each reviewer agent is just its focus checklist plus "read the
+non-blocking, converge in later rounds, cite evidence, probe evidence, output format)
+live once in `reviewer-contract.md`. Each reviewer agent is just its focus checklist plus "read the
 contract", so custom reviewers stay short and pick up contract fixes on `update`.
+
+**UI and UX reviewers** each have four parts:
+1. Probe evidence they must answer.
+2. Rules with numbers (WCAG 2.2 AA thresholds, for example contrast 4.5:1 and 3:1,
+   reflow at 320px, 24px targets, CLS ≤ 0.1), each with a way to check it from the
+   diff when the probe didn't run.
+3. Mechanical checks with grep commands (literal colours and sizes where tokens
+   exist, removed outlines, positive tabindex, click handlers on non-interactive
+   elements). They search only the lines the diff adds, with
+   `round.mjs grep <worktree> <from> <to> '<regex>'`, which prints `file:line: text`
+   using each line's number in its file (round.md gives the command). `grep -n` on
+   diff output numbers lines of the diff, and reviewers cited those as file lines. They skip what a passing `ui-tokens` or `ui-a11y` gate already
+   covers, as project.md's Interface records it.
+4. Judgement, only where a screenshot or `file:line` can be cited.
+
+UX also fills a Flows table: each `(flow)` criterion's test, whether it drives the UI,
+covers every step and every `Expect:` line, and which check runs it.
 
 **Custom reviewers:** any `factory-review-<name>.md` that follows the contract and is
 listed in `config.reviewers`. At job start the orchestrator checks every enabled
@@ -339,6 +473,15 @@ always matches the repo's skill and agents.
 
 - Builder works in `.factory-worktrees/<job-id>` on branch `factory/<job-id>`, created
   by the orchestrator from baseBranch. The user's own checkout is never switched.
+- A worktree holds only committed files. Right after creating one (new job, resume,
+  rework), the orchestrator or runner runs `worktree.mjs <job-id>`: it symlinks each
+  `config.worktree.link` path from the main checkout, runs `config.worktree.setup` in
+  the worktree, and writes a `factory-ready` marker in the worktree's private git
+  folder. The runner treats a worktree without the marker as missing, so a setup
+  killed part-way runs again. A link that isn't gitignored in the worktree is refused,
+  so secrets can't be committed from it; links are symlinks, so removing the worktree
+  leaves the originals. Failure → needs-human, `worktree setup failed: <reason>`. The
+  runner runs setup under the `maxParallelChecks` limit.
 - Reviewers read the diff and files from the worktree; they don't modify it.
 - On merge: orchestrator merges `factory/<job-id>` into baseBranch, then removes the
   worktree. If the user's tree has conflicting uncommitted changes, or the merge
@@ -441,7 +584,43 @@ template/           # exactly what lands in the user's repo
 README.md
 LICENSE             # MIT
 test/               # node:test — init/update/dashboard, board locks, the runner (with a fake claude) against temp git repos
+test/evals/         # opt-in reviewer benchmark (npm run eval:reviewers); not in the package
 ```
+
+## Reviewer benchmark
+
+`npm run eval:reviewers` (`test/evals/run.mjs`) measures the UI and UX reviewers on
+a fixture with planted defects. It runs real agents, so it isn't part of `npm test`.
+`score.mjs` is pure and is.
+
+- **Fixture (`test/evals/ui/`):** `base/` is main (a static app with design tokens,
+  an orders API and Playwright tests), `change/` is what the job's branch adds or
+  changes (an Orders page), `job/` holds request.md, spec.md (Screens with four
+  routable states, flow criteria), build.md and project.md. `defects.json` lists 12
+  planted defects (`lane`, `kind`, `locations` of `{ file, lines, text }`, plus an
+  optional `probe` matcher, `state` and `keywords`) and the correct `controls`. A unit
+  test checks each location's `text` is in its lines and that no two items overlap.
+- **A run:** a temp repo with base committed on main, the factory installed from
+  `template/` (src/init.js), config set for the variant (only ui and ux enabled, on
+  the variant's model; `ui.serve` empty for probe off; light theme at 320 and 1280px),
+  a worktree with the change committed, and the job folder. Round 1 is prepared by
+  the temp repo's own `round.mjs` with `probeBlocks: false`, so the probe's failures
+  are reported to the reviewers (round.md says so) instead of blocking. Then both
+  reviewers run in parallel through the configured harness with the runner's
+  reviewer prompt, and `checkReview` runs on each.
+- **Scoring:** blocking findings are the numbered items under `## Blocking`. Each one's
+  citations are its `file:line[-line]` references, probe IDs (plus any the review's
+  Probe findings section answers with `blocking #<n>`) and screenshots. A finding
+  finds a defect when a citation overlaps one of its locations, names a probe item
+  matching its `probe` (kind, rule, target substring), or names a screenshot of a
+  visit in its `state` while the finding's words contain one of its `keywords`.
+  Recall is per lane (the reviewer's own), precision is matched findings ÷ blocking
+  findings, and a false positive is a finding that matches no defect but cites a
+  control.
+- **Output:** per variant (`probe-on|off` × model), `--runs` runs (default 3), the
+  mean and range of each metric, combined recall, probe recall, per-defect hit counts
+  and cost from usage.mjs prices. Written to
+  `test/evals/results/<date>-<variant>.json` with the review texts.
 
 ## Changes from the reference
 

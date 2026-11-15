@@ -7,12 +7,26 @@
     "githubLabel": "factory"
   },
   "checks": {},
+  "worktree": {
+    "link": [],
+    "setup": ""
+  },
   "runner": {
     "headless": false,
     "harness": "claude-code",
     "parallel": 1,
     "maxParallelChecks": 1,
     "permissionMode": "dontAsk"
+  },
+  "ui": {
+    "serve": "",
+    "url": "http://localhost:{port}",
+    "readyTimeout": 120,
+    "viewports": [320, 768, 1280],
+    "themes": ["light", "dark"],
+    "storageState": null,
+    "maxVisits": 60,
+    "tabStops": 30
   },
   "models": {
     "spec-writer": "opus",
@@ -35,6 +49,7 @@
     "ux": {
       "model": "sonnet",
       "enabled": true,
+      "probe": true,
       "paths": [
         "*.{html,jsx,tsx,vue,svelte,astro}", "**/components/**", "**/pages/**",
         "**/views/**", "**/templates/**", "**/locales/**", "**/i18n/**"
@@ -43,6 +58,7 @@
     "ui": {
       "model": "sonnet",
       "enabled": true,
+      "probe": true,
       "paths": [
         "*.{css,scss,sass,less,html,jsx,tsx,vue,svelte,astro}", "**/components/**",
         "**/styles/**", "**/assets/**", "**/public/**", "tailwind.config.*"

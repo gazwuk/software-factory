@@ -12,7 +12,8 @@
     "template"
   ],
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "eval:reviewers": "node test/evals/run.mjs"
   },
   "engines": {
     "node": ">=18"

@@ -25,10 +25,13 @@ agents **absolute** paths.
 | `factory/project.md` | Repo profile. Every agent reads it. |
 | `factory/board.json` | Durable state; drives the dashboard. Change it only with board.mjs. |
 | `factory/backlog.md` | Task queue when `config.tasks.source` is `"backlog"`. |
+| `factory/lint/` | Config for the static UI gates (see **Setup**), when the repo has them. |
 | `factory/jobs/<id>/` | Job folder: `request.md`, `spec.md`, `build.md`, `round-N/`, `decision.md`. Always in the main checkout, never in a worktree. |
 | `.factory-worktrees/<id>/` | The builder's git worktree, on branch `factory/<id>`. |
 | `.claude/skills/factory/reviewer-contract.md` | Rules every reviewer follows. |
 | `.claude/skills/factory/round.mjs` | Runs the checks and picks the reviewers for a round. |
+| `.claude/skills/factory/worktree.mjs` | Prepares a new worktree: links gitignored files, runs `config.worktree.setup`. |
+| `.claude/skills/factory/probe.mjs` | The UI probe: serves the worktree and measures the spec's screens. round.mjs runs it. |
 | `.claude/skills/factory/usage.mjs` | Records each agent's tokens and cost (a SubagentStop hook runs it). |
 | `.claude/skills/factory/board.mjs` | Changes one job on board.json under a lock; claims job ids. |
 | `.claude/skills/factory/runner.mjs` | The headless runner: the same loop in code, no session needed. |
@@ -217,8 +220,8 @@ Takes a request (text) and optionally an issue (number + URL).
    snapshot is fixed for the life of the job), `rounds` = `[]`, `issue`/`issueUrl`.
 3. **Spec.** Spawn `factory-spec-writer` with `request.md`, `project.md` and the job
    folder. It writes `spec.md`.
-4. **Worktree.** `git worktree add .factory-worktrees/<id> -b factory/<id> <baseBranch>`.
-   Stage `build`.
+4. **Worktree.** `git worktree add .factory-worktrees/<id> -b factory/<id> <baseBranch>`,
+   then prepare it (see **Preparing a worktree**). Stage `build`.
 5. **Build.** Spawn a builder (see Spawning agents) for the first build. It commits
    on the branch and writes `build.md`. Check that `build.md` exists and the branch has commits ahead of
    baseBranch (`git rev-list --count <base>..factory/<id>`); if not, treat as a
@@ -227,6 +230,16 @@ Takes a request (text) and optionally an issue (number + URL).
 
 Whenever a job with an `issue` changes to `needs-human`, comment on the issue (see
 **GitHub issues**).
+
+## Preparing a worktree
+
+A worktree holds only committed files, so whatever is gitignored (`.env` files,
+`node_modules`, generated code) is missing until it's prepared. Every time you create
+or recreate one, run `node <abs>/.claude/skills/factory/worktree.mjs <id>` from the
+repo root with the Bash tool's longest timeout (an install can be slow). It symlinks
+each `config.worktree.link` path from the main checkout, runs `config.worktree.setup`
+in the worktree, and prints one line of JSON. `"ok": false` → stage `needs-human`,
+note `worktree setup failed: <error>`.
 
 ## Review round N
 
@@ -238,6 +251,8 @@ Whenever a job with an `issue` changes to `needs-human`, comment on the issue (s
    `round-N/round.md` and `round-N/round.json` and prints one line of JSON. If it
    exits non-zero, stage `needs-human` with its error as the note.
    - `"ok": false` → the checks failed (or the worktree had uncommitted changes).
+     `ui-probe` among the failures means the UI probe found problems the change
+     introduced; round.md links its report, and it's fixed the same way.
      Spawn a fresh builder on the fix model: "Check fix: the checks failed on the last
      commit; the output is in `<abs round.md>`. Fix the cause, commit, and reply with
      one line." Then run round.mjs
@@ -251,8 +266,16 @@ Whenever a job with an `issue` changes to `needs-human`, comment on the issue (s
    number, and its output path `round-N/review-<name>.md`.
 4. As each reviewer finishes, read its verdict and update the board.
 5. **WAIT FOR ALL.** When every reviewer in `run` has finished, check every file
-   exists with a valid verdict line. Re-spawn any that don't, once. Still missing →
-   stage `needs-human`, note `reviewer <name> produced no verdict in round N`.
+   exists with a valid verdict line. For each reviewer with `probe: true` in config,
+   also run `node <abs>/.claude/skills/factory/probe.mjs check-review <id> N <name>`:
+   it prints `{"ok": false, "missing": [...]}` when the review leaves out probe items
+   or screenshots it owes. Re-spawn any reviewer that fails either check, once; for
+   missing items, add to its prompt: "Your last review there left out <missing>.
+   Read it, answer each probe item under `## Probe findings`, view each screenshot
+   and list it under `## Coverage` (see the contract's Probe evidence rule), and
+   rewrite the file." Still failing → stage `needs-human`, note
+   `reviewer <name> produced no verdict in round N` or
+   `reviewer <name>'s review left out <missing> in round N`.
 6. Then, looking only at the reviewers that ran this round:
    - **Any CHANGES and N < roundLimit** → stage `build`. Spawn a fresh builder on the
      fix model: "Round N reviews are in `<abs round folder>`. Address every CHANGES
@@ -427,15 +450,35 @@ Done by you directly, no agent. Re-runnable.
    ## Test status   (result of running the tests during setup)
    ## Layout        (where source, tests and config live)
    ## Conventions   (naming, style, patterns to follow, things to avoid)
-   ## Interface     (has UI: yes/no — what kind)
+   ## Interface     (has UI: yes/no — what kind; how to run it locally; e2e and component test tooling;
+                     where design tokens and shared components live; themes; static UI gates
+                     and what each covers)
    ```
 
 5. Write `config.checks`: the test, lint and type-check commands from step 1, as
    `{ "test": "<command>", "lint": "<command>", "typecheck": "<command>" }`. Leave out
    any the repo doesn't have. They run from the worktree root without a terminal, so
-   use non-interactive forms (no watch mode). These are the only checks the factory
-   runs between the builder and the reviewers.
-6. **Tune reviewer selection** in config:
+   use non-interactive forms (no watch mode). These, the static UI gates (step 8)
+   and the UI probe (step 7) are the only checks the factory runs between the
+   builder and the reviewers.
+6. **Prepare worktrees.** Jobs run in a fresh worktree with only committed files.
+   Work out what the checks and the app need beyond that, and write `config.worktree`:
+   - `setup`: one non-interactive command that installs dependencies from the lock
+     file and generates anything the build needs (`npm ci --prefer-offline`,
+     `pnpm install --frozen-lockfile && pnpm prisma generate`, `uv sync`, …). Join
+     several with `&&`. Leave it empty if nothing is needed.
+   - `link`: gitignored files in the main checkout that the app or tests read, such
+     as `.env`, `.env.local` or `apps/web/.env`. Find them with
+     `git ls-files --others --ignored --exclude-standard` (skip `node_modules`, build
+     output and caches). These often hold secrets: show the user the exact list and
+     ask before adding any. They're symlinked, not copied, and a path that isn't
+     gitignored is refused, so it can't be committed from a worktree.
+   - Prove it: `git worktree add --detach .factory-worktrees/setup-check HEAD`, run
+     `node <abs>/.claude/skills/factory/worktree.mjs setup-check`, and run each
+     check in that worktree. Fix the config until they pass, and record the result
+     under Test status in project.md. Keep the worktree for steps 7 and 8, then
+     remove it with `git worktree remove --force .factory-worktrees/setup-check`.
+7. **Tune reviewer selection** in config:
    - If the repo has no user interface, set `enabled: false` for `ux` and `ui` (say
      so; the user can re-enable them).
    - Otherwise set the `paths` of `ux` and `ui` to globs for where this repo's front
@@ -446,9 +489,108 @@ Done by you directly, no agent. Re-runnable.
    - Globs: `**` spans folders, `*` stays within one, `{a,b}` is either, and a glob
      with no `/` matches a file name anywhere. A reviewer without `paths` reviews
      every change.
-7. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
+   - **UI probe** (web UIs only). Before any reviewer with `probe: true` runs,
+     `probe.mjs` serves the job's worktree, opens each screen spec.md lists at every
+     `ui.viewports` width in every `ui.themes` theme, and records axe (WCAG 2.2 AA)
+     violations, sideways overflow, page and console errors, layout shift, the Tab
+     order and screenshots. Failures the change introduced send the job back to the
+     builder before the reviewers run. To set it up:
+     - `ui.serve`: the command that serves the app, with `{port}` where the port
+       goes (it's also in `PORT`), such as `npm run dev -- --port {port}`. It runs in
+       a job's worktree, prepared as in step 6, without a terminal. `ui.url` is
+       where it answers.
+     - `ui.themes`: `"light"` and `"dark"` set `prefers-color-scheme`. For a theme
+       chosen another way, use `{ "name": "dark", "colorScheme": "dark", "init":
+       "localStorage.theme = 'dark'" }`; `init` runs before the page's scripts.
+     - Screens behind a sign-in need `ui.storageState`: a Playwright storage-state
+       file, relative to the repo root. Tell the user how to make one.
+     - The probe needs `playwright` and `axe-core` in the repo and Chromium
+       (`npx playwright install chromium`). If they're missing, ask the user before
+       adding them as dev dependencies. Without them the probe reports "skipped"
+       and the reviewers work from the diff alone.
+     - Check it by starting `ui.serve` in the `setup-check` worktree from step 6,
+       with a free port, and fetching `ui.url`.
+     - No web UI, or the user declines: leave `ui.serve` empty.
+8. **Static UI gates** (repos with a UI). Linters catch some UI rules before any
+   model or browser does: a literal colour where a token exists, a click handler on a
+   `<div>`, an image with no `alt`. A gate is a check that sees only the change:
+
+   ```json
+   "ui-tokens": { "command": "npx stylelint --config factory/lint/stylelint.json --allow-empty-input {files}",
+                  "files": ["*.{css,scss}"], "scope": "lines" },
+   "ui-a11y":   { "command": "npx eslint --config factory/lint/eslint.config.mjs --no-warn-ignored {files}",
+                  "files": ["*.{jsx,tsx}"], "scope": "lines" }
+   ```
+
+   round.mjs replaces `{files}` with the changed files that match `files`, and skips
+   the gate when there are none. With `scope: "lines"` it reads the `path:line`
+   locations in the output (eslint's and stylelint's default formats, or `unix`) and
+   fails only on problems on lines the change added or changed, so problems already
+   in the repo never block a job. Output that isn't a problem on a line (a crash, a
+   config error) still fails the gate. A failure reaches the builder like any other check.
+   Use these names, so the UI and UX reviewers know what's covered.
+   - **Design tokens (`ui-tokens`):** when the repo has design tokens (CSS custom
+     properties, or Sass or Less variables) and uses stylelint (a dependency, a
+     `.stylelintrc*` or a `stylelint.config.*`), propose
+     `stylelint-declaration-strict-value`. Gate only the properties the repo has
+     tokens for: colours, `font-size`, `z-index`, spacing. Write
+     `factory/lint/stylelint.json` with that one rule. Don't extend the repo's
+     config, or the gate repeats the lint check, but copy its `customSyntax` and
+     `overrides` so it parses the same files:
+
+     ```json
+     {
+       "plugins": ["stylelint-declaration-strict-value"],
+       "rules": {
+         "scale-unlimited/declaration-strict-value": [
+           ["/color$/", "font-size", "z-index", "/^(margin|padding|gap)/"],
+           { "ignoreFunctions": false,
+             "ignoreValues": ["inherit", "initial", "unset", "currentcolor", "transparent",
+                              "none", "auto", "0", "/var\\(--/"] }
+         ]
+       }
+     }
+     ```
+
+     `ignoreFunctions: false` catches `rgb()` and `hsl()` literals, and the last
+     `ignoreValues` entry lets functions built on tokens (`calc(var(--space-2) * 2)`)
+     through.
+   - **Accessibility (`ui-a11y`):** the plugin that fits the stack, at its
+     `recommended` rules, in `factory/lint/eslint.config.mjs` (match the repo's
+     ESLint version and parser, such as `typescript-eslint` for `.tsx`).
+     React/JSX: `eslint-plugin-jsx-a11y` (`jsxA11y.flatConfigs.recommended`). Vue:
+     `eslint-plugin-vuejs-accessibility`, files `*.vue`. Svelte:
+     `eslint-plugin-svelte`'s `svelte/valid-compile` rule, which reports the
+     compiler's a11y warnings per file. `svelte-check --fail-on-warnings` checks the
+     whole project and can't be scoped, so use it only as a plain string check, and
+     only if it passes on baseBranch today.
+   - **Already there:** if the repo's own lint config already has these rules and
+     step 5 put its command in `checks`, add no gate.
+   - **Ask first.** Show the user the dev dependencies you'd add
+     (`npm i -D stylelint-declaration-strict-value`, …) and the files you'd write,
+     and install or write nothing until they say yes. Declined → no gate.
+   - **Prove each gate** in the `setup-check` worktree. Copy the changed
+     `package.json`, the lock file and `factory/lint/` into it and run
+     `config.worktree.setup` there. Then
+     `node <abs>/.claude/skills/factory/round.mjs check <name> .factory-worktrees/setup-check HEAD`
+     runs the gate as a round would, on the worktree's uncommitted work, and prints
+     JSON. Check all three:
+     1. With only those copied files changed, it's skipped (`files` doesn't match).
+     2. Add a line that breaks the rule, such as `color: #333;` where a colour token
+        exists or `<div onClick={f}>`, to a file that already has problems if there
+        is one. It fails, and `output` lists only that line.
+     3. Change that line to use the token, or a `<button>`. It passes, and `note`
+        counts the older problems it ignored.
+
+     `checkout` the edited files afterwards.
+   - Record the gates in project.md's Interface: each gate's name, the rules or
+     properties it enforces, and the files it covers. Also record a repo lint
+     check that already has these rules.
+9. If the repo has a GitHub remote and `gh` is signed in, mention that tasks can come
    from issues labelled `<githubLabel>` by setting `tasks.source` to `"github"`.
-8. Show the user a short summary and suggest committing `.claude/` and `factory/`.
+10. Show the user a short summary and suggest committing `.claude/` and `factory/`
+    (and any dev dependencies step 8 added). Jobs branch from baseBranch, so a gate
+    works only once its config and plugins are committed there.
 
 ## Status
 
@@ -468,7 +610,7 @@ Find the active job (stage `spec`, `build`, `review` or `approval`). Leave out a
 
 - `spec`: `spec.md` exists → step 4 of New job. Otherwise step 3.
 - `build`: worktree missing → recreate it from the existing branch
-  (`git worktree add .factory-worktrees/<id> factory/<id>`). If round is 0 and
+  (`git worktree add .factory-worktrees/<id> factory/<id>`) and prepare it. If round is 0 and
   `build.md` exists with commits ahead → review round 1. If round ≥ 1 and build.md has
   a `## Round <round> response` section → review round `round + 1`. Otherwise spawn
   a fresh builder for the current step.
@@ -494,7 +636,7 @@ active.
 2. If `decision.md` exists, move it to `round-N/decision.md` so history is kept.
 3. Set `roundLimit` = N + `config.maxRounds`, `decision` = null, clear `note`, stage
    `build`.
-4. Recreate the worktree if it's gone. Spawn a fresh builder on `config.models.builder`
+4. Recreate the worktree if it's gone, and prepare it. Spawn a fresh builder on `config.models.builder`
    (human feedback is often a real bug to track down, so not the fix model): "Rework:
    human feedback is in `<abs round-N>/human.md`; read `decision.md` and any
    `review-*.md` there too. Address it, commit, append a `## Round N response`

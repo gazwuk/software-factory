@@ -180,6 +180,8 @@ out.
   skills/factory/SKILL.md        the orchestrator: runs the loop, or hands it to the runner
   skills/factory/reviewer-contract.md
   skills/factory/round.mjs       runs the checks and picks the reviewers each round
+  skills/factory/probe.mjs       the UI probe: renders the change's screens and measures them
+  skills/factory/worktree.mjs    prepares new worktrees: links .env files, runs setup
   skills/factory/usage.mjs       records each agent's tokens and cost
   skills/factory/board.mjs       changes board.json under a lock; claims job ids
   skills/factory/runner.mjs      the headless runner
@@ -195,7 +197,7 @@ factory/
   .locks/                        locks for the runner and board writes (gitignored)
   activity/                      what the headless runner is running now, for the dashboard (gitignored)
   dashboard.html
-  jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,review-*.md}, decision.md, usage/
+  jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,probe.md,review-*.md}, decision.md, usage/
 ```
 
 The builder works in a git worktree (`.factory-worktrees/<id>`, gitignored) on branch
@@ -213,14 +215,17 @@ folder is committed as a record of what happened.
   "onApprove": "merge",
   "tasks": { "source": "backlog", "githubLabel": "factory" },
   "checks": { "test": "npm test", "lint": "npm run lint" },
+  "worktree": { "link": [".env.local"], "setup": "npm ci --prefer-offline" },
   "runner": { "headless": false, "harness": "claude-code", "parallel": 1,
               "maxParallelChecks": 1, "permissionMode": "dontAsk" },
+  "ui": { "serve": "npm run dev -- --port {port}", "url": "http://localhost:{port}",
+          "viewports": [320, 768, 1280], "themes": ["light", "dark"] },
   "models": { "spec-writer": "opus", "builder": "opus", "builder-fix": "sonnet", "approver": "opus" },
   "reviewers": {
     "security": { "model": "sonnet", "enabled": true,
                   "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json", "…"] },
-    "ux": { "model": "sonnet", "enabled": true, "paths": ["**/components/**", "**/pages/**", "…"] },
-    "ui": { "model": "sonnet", "enabled": true, "paths": ["*.{css,scss,tsx}", "…"] },
+    "ux": { "model": "sonnet", "enabled": true, "probe": true, "paths": ["**/components/**", "**/pages/**", "…"] },
+    "ui": { "model": "sonnet", "enabled": true, "probe": true, "paths": ["*.{css,scss,tsx}", "…"] },
     "code": { "model": "sonnet", "enabled": true }
   }
 }
@@ -235,10 +240,18 @@ folder is committed as a record of what happened.
   labelled `tasks.githubLabel`). See [Giving it work](#giving-it-work).
 - `checks`: commands run in the worktree after every build, before any reviewer.
   `/factory setup` fills them in. See [Checks and reviewer selection](#checks-and-reviewer-selection).
+  A check can also be a gate that lints only the change; see [Static UI gates](#static-ui-gates).
+- `worktree`: jobs run in a fresh git worktree holding only committed files, so
+  anything gitignored the app or tests need is missing. `link` lists files to
+  symlink in from your checkout (`.env` files; each must be gitignored), and `setup`
+  is a command run once in each new worktree (install, codegen). `/factory setup`
+  proposes both and asks before linking anything.
 - `reviewers.<name>.paths`: run this reviewer only when the change touches files
   matching these globs. Leave it out to review every change.
 - `reviewers.<name>.escalatePaths` / `escalateModel`: use `escalateModel` instead of
   `model` when the change touches these files.
+- `reviewers.<name>.probe`: run the [UI probe](#ui-probe) before this reviewer.
+- `ui`: how the UI probe serves and views the app. An empty `ui.serve` turns it off.
 - Turn a reviewer off with `"enabled": false` rather than deleting it.
 - `runner.headless`: hand `/factory` jobs to the headless runner.
   `runner.parallel` is the default for `--parallel`. `runner.maxParallelChecks` caps
@@ -265,12 +278,47 @@ Each review round starts with `round.mjs`, a small script rather than an agent:
 3. **Which model.** If the change touches a reviewer's `escalatePaths`, it runs on
    `escalateModel`. So security is on Sonnet for most changes and Opus for
    authentication, dependencies, migrations and CI.
+4. **UI probe.** If a selected reviewer has `probe: true` (ui and ux do), it runs
+   `probe.mjs`; see below.
 
 Everything it decided, and why, is in `round-N/round.md` (the **checks** tab on the
 dashboard). Globs: `**` spans folders, `*` stays within one, `{a,b}` is either, and a
 glob without `/` matches a file name anywhere (`package.json`, `*.css`). The default
 `ux` and `ui` paths are generic front-end locations, and `/factory setup` adjusts them
 to your repo.
+
+### Static UI gates
+
+Some UI rules don't need a model or a browser: a linter can catch a hard-coded colour
+where a design token exists, or a `<div onClick>` with no role. For a repo with a UI,
+`/factory setup` proposes two gates and adds them to `checks`, so they fail like any
+other check and the builder fixes them before a reviewer looks:
+
+- `ui-tokens`: [`stylelint-declaration-strict-value`](https://github.com/AndyOGo/stylelint-declaration-strict-value)
+  for colours, font sizes, z-index and spacing, when the repo uses stylelint and has
+  tokens.
+- `ui-a11y`: `eslint-plugin-jsx-a11y` (React), `eslint-plugin-vuejs-accessibility`
+  (Vue) or `eslint-plugin-svelte`'s compiler a11y warnings (Svelte): names, labels,
+  alt text, interactive roles, positive `tabindex`.
+
+It asks before installing anything, writes their config to `factory/lint/`, and
+proves each gate in a throwaway worktree. If your lint config already has these
+rules, it just makes sure `checks` runs it.
+
+A gate only looks at the change, so turning a rule on doesn't mean fixing the
+whole repo first:
+
+```json
+"ui-tokens": { "command": "npx stylelint --config factory/lint/stylelint.json --allow-empty-input {files}",
+               "files": ["*.{css,scss}"], "scope": "lines" }
+```
+
+`{files}` becomes the changed files matching `files`. If none match, the gate is
+skipped. With `scope: "lines"`, only problems on lines the change added or changed
+fail it. Older problems in the same files are counted in round.md but don't block.
+`node .claude/skills/factory/round.mjs check ui-tokens <worktree>` runs a gate by
+hand, the way a round would. The UI and UX reviewers skip the grep checks a passing
+gate already covers.
 
 ### Cost tracking
 
@@ -288,6 +336,41 @@ override or add a price, put this in config (USD per million tokens):
 ```json
 "pricing": { "claude-opus-5-5": { "input": 4, "output": 20, "cacheRead": 0.2 } }
 ```
+
+### UI probe
+
+For web UIs, the UI and UX reviewers start from measurements instead of a diff.
+`probe.mjs` serves the job's worktree with `ui.serve`, opens every screen and state in
+the spec's **Screens** table at each `ui.viewports` width in each `ui.themes` theme,
+and records:
+
+- axe-core violations against WCAG 2.2 A/AA (contrast, names, labels, target size, …)
+- sideways overflow, and the elements causing it
+- page errors, console errors, failed requests and the page's HTTP status
+- layout shift (CLS)
+- the Tab order, with each stop's name and whether focus is visible
+- a screenshot of each visit, which the reviewers look at
+
+Load failures, error statuses, page errors, overflow and serious or critical axe
+violations block: the builder fixes them before any reviewer runs. They block only
+if the change introduced them. The probe repeats failing visits on the merge base,
+and anything already there is reported as pre-existing. The rest are warnings for
+the reviewers. The report is `round-N/probe.md`; screenshots are in `round-N/probe/`
+(gitignored). The report is committed with the job, so URLs and messages in it are
+redacted: query strings, credentials, tokens and emails are masked.
+
+Each item in the report has an ID and a lane, `ui` or `ux`, so every item has exactly
+one owner. A UI or UX review must answer every item it owns and list the screenshots
+it viewed. The factory checks that mechanically: a review with gaps is run again,
+told what it missed, and then goes to you. The reviewers also check WCAG 2.2 AA
+numbers (contrast, reflow at 320px, target size, focus) from the diff when there's
+no probe, and the UX reviewer confirms each `(flow)` criterion has a test that drives
+the UI.
+
+It uses your repo's own `playwright` and `axe-core` (`npm i -D playwright axe-core`
+and `npx playwright install chromium`); without them, or with no `ui.serve`, it's
+skipped. `/factory setup` configures it. For screens behind a sign-in, point
+`ui.storageState` at a Playwright storage-state file.
 
 ### Your own reviewers
 
@@ -324,6 +407,64 @@ Jobs and the board are unchanged. If you'd edited `SKILL.md`, merge `SKILL.md.ne
 new skill writes the board through `board.mjs`, so a session and a runner can work
 side by side. `run` needs a Claude Code recent enough for `claude -p --agent` with
 `--permission-mode dontAsk`; it checks before it starts.
+
+## Measuring the reviewers
+
+When you change the UI or UX reviewer prompts, the reviewer contract or the probe,
+the reviewer benchmark tells you whether reviews got better or worse. It's for working on the
+factory itself, so it lives in this repo's `test/evals/` and isn't installed into
+yours.
+
+The fixture in `test/evals/ui/` is a small shop app. Its job branch adds an Orders page
+with 12 planted defects, recorded in `defects.json` with their lane, file and lines:
+
+- **UI:** a table that overflows at 320px, a literal `#333` where a colour token exists,
+  `outline: none` with no replacement, text at 2.15:1 contrast, 16px tap targets.
+- **UX:** an icon-only button with no name, a delete with no confirmation, a bare
+  "Something went wrong.", a form that loses its input on a rejected submit, a dialog
+  that doesn't return focus, a flow test that calls a function instead of pressing
+  the button, and an empty state with no next step.
+
+It also has correct changes nearby (token-only styles, labelled fields with tied
+errors, a status region, a flow test that drives the UI), so false positives show up.
+
+```
+npm ci --prefix test/evals/ui/base                        # Playwright and axe-core for the probe
+npx --prefix test/evals/ui/base playwright install chromium
+npm run eval:reviewers                                    # 3 runs each, probe on and off
+npm run eval:reviewers -- --runs 1 --probe on --models sonnet,opus
+```
+
+Each run builds a throwaway repo from the fixture, installs the factory from
+`template/`, prepares round 1 with the real `round.mjs` and probe, and runs
+`factory-review-ui` and `factory-review-ux` with `claude -p`. The probe's failures go
+to the reviewers instead of blocking the round, so every defect reaches them.
+`--keep` keeps each repo for a look at the reviews.
+
+**Cost:** it runs real agents. A run is two reviews: about $0.40 on Sonnet at API
+prices (measured with the probe on), and more on Opus. The default (3 runs × probe
+on and off) is 12 reviews, about $2.50 on Sonnet.
+
+**Scoring** is code, not a model (`test/evals/score.mjs`, tested in `npm test`). A
+blocking finding finds a defect when it cites one of the defect's `file:line`
+ranges, a probe ID whose finding matches it (`F2` is axe `button-name`), or a
+screenshot of the defect's state together with one of its keywords. For each
+variant it prints, per reviewer:
+
+- **Recall:** the defects in its lane that it found.
+- **Precision:** the blocking findings that found a defect, out of all of them.
+- **False positives on controls:** blocking findings that hit a correct change and
+  no defect.
+- **check-review:** how many of its reviews answered every probe item and
+  screenshot they owed.
+- **Cost** per run, from the agents' token counts.
+
+It also prints the recall of both reviewers together, the share of defects the probe's
+items point at, and how often each defect was found. Model output varies, so each
+number is the mean, with the range across runs in brackets. Results go to
+`test/evals/results/<date>-probe-<on|off>-<model>.json`, reviews included. Commit
+a run as the baseline, and compare the next one after a prompt change with the same
+variant. The gap between `probe-on` and `probe-off` is what the probe adds.
 
 ## Tips
 
