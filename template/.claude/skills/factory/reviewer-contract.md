@@ -90,7 +90,7 @@ One or two sentences.
 ## Coverage
 - Read: <every changed file you reviewed>
 - Not read: <changed files in your lane you didn't review, and why> (or "None.")
-- Screens viewed: <every screenshot you looked at, e.g. probe/billing-default-320-light.png>
+- Screens viewed: <every screenshot you looked at, e.g. probe/billing-default-320-light-3f9a1c2e.png>
                                                (when the probe ran)
 
 ## Probe findings           (when the probe ran)

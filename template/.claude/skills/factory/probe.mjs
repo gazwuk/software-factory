@@ -15,6 +15,7 @@
 // what it can show the change introduced: a failure is checked against the merge base
 // and doesn't block if the base has it too.
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
@@ -490,6 +491,12 @@ async function runAxe([tags, nodes]) {
 const slug = (s) => s.replace(/^\//, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'root';
 
 /**
+ * A visit's screenshot file name: readable slugs, then a digest of the whole visit key,
+ * since slugs alone can collide (`/a-b` and `/a/b`).
+ */
+export const shotName = (v) => `${slug(v.path)}-${slug(v.state)}-${v.width}-${slug(v.theme.name)}-${createHash('sha256').update(v.key).digest('hex').slice(0, 8)}.png`;
+
+/**
  * What one Tab press means, given the stops so far and where focus went (null when it
  * left the page, as Chromium does after the last stop). Staying put is a trap, or on an
  * iframe focus moving inside it, which the walk can't follow. Leaving the page or
@@ -550,7 +557,7 @@ async function visit(browser, origin, v, ctx) {
     await page.evaluate(ctx.axeSource);
     m.axe = await page.evaluate(runAxe, [AXE_TAGS, AXE_NODES]);
     if (ctx.shots) {
-      const file = join(ctx.shots, `${slug(v.path)}-${slug(v.state)}-${v.width}-${slug(v.theme.name)}.png`);
+      const file = join(ctx.shots, shotName(v));
       const height = await page.evaluate(() => document.documentElement.scrollHeight);
       await page.screenshot({ path: file, fullPage: true, clip: { x: 0, y: 0, width: v.width, height: Math.min(height, MAX_SHOT_HEIGHT) } });
       m.screenshot = relative(ctx.outDir, file);

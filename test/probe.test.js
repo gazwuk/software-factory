@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { DEFAULTS, compareWithBase, depChanges, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, startupVisit, tabStep, tally } from '../template/.claude/skills/factory/probe.mjs';
+import { DEFAULTS, compareWithBase, depChanges, findingsOf, laneOf, numbered, parseScreens, planVisits, probeIds, redact, renderProbe, reviewGaps, shotName, startupVisit, tabStep, tally } from '../template/.claude/skills/factory/probe.mjs';
 
 const SPEC = `# Billing
 
@@ -55,6 +55,14 @@ test('planVisits crosses screens with viewports and themes, and tab-walks once e
     '/settings/billing?cards=0 empty: over `ui.maxVisits` (5)',
   ]);
   assert.deepEqual(planVisits(rows, DEFAULTS).unvisited, []);
+});
+
+test('shotName gives visits whose slugs match different files', () => {
+  const [a, b] = planVisits([{ screen: '/a-b', state: 'default', path: '/a-b' }, { screen: '/a/b', state: 'default', path: '/a/b' }],
+    { ...DEFAULTS, viewports: [320], themes: ['light'] }).visits;
+  assert.match(shotName(a), /^a-b-default-320-light-[0-9a-f]{8}\.png$/);
+  assert.notEqual(shotName(a), shotName(b));
+  assert.equal(shotName(a), shotName({ ...a }), 'the same visit gets the same name');
 });
 
 test('findingsOf sorts measurements into blocking failures and warnings', () => {
