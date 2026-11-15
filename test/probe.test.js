@@ -48,7 +48,13 @@ test('planVisits crosses screens with viewports and themes, and tab-walks once e
     '/settings/billing 1280 light', '/settings/billing?cards=0 1280 light',
   ]);
   assert.equal(visits.find((v) => v.theme.name === 'hc').theme.init, 'x()');
-  assert.equal(planVisits(rows, { ...DEFAULTS, maxVisits: 5 }).dropped, 2 * 3 * 2 - 5);
+  const capped = planVisits(rows, { ...DEFAULTS, maxVisits: 5 });
+  assert.equal(capped.dropped, 2 * 3 * 2 - 5);
+  // The first state keeps 5 of its 6 visits; the second loses all of them.
+  assert.deepEqual(capped.unvisited.map((u) => `${u.path} ${u.state}: ${u.reason}`), [
+    '/settings/billing?cards=0 empty: over `ui.maxVisits` (5)',
+  ]);
+  assert.deepEqual(planVisits(rows, DEFAULTS).unvisited, []);
 });
 
 test('findingsOf sorts measurements into blocking failures and warnings', () => {

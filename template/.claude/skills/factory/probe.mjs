@@ -78,16 +78,18 @@ const themeOf = (t) => (typeof t === 'string'
 
 /**
  * Every visit: each screen and state at each viewport in each theme. The tab walk runs
- * once per screen and state, at the widest viewport in the first theme.
+ * once per screen and state, at the widest viewport in the first theme. Past
+ * `ui.maxVisits` the rest are dropped; a screen and state that loses every visit is
+ * in `unvisited`, so it's reported like one the probe couldn't open.
  */
 export function planVisits(rows, ui) {
   const widths = [...ui.viewports].sort((a, b) => a - b);
   const themes = ui.themes.map(themeOf);
   const visits = [];
-  const seen = new Set();
+  const seen = new Map();
   for (const row of rows.filter((r) => r.path)) {
     if (seen.has(`${row.path}|${row.state}`)) continue;
-    seen.add(`${row.path}|${row.state}`);
+    seen.set(`${row.path}|${row.state}`, row);
     for (const theme of themes) {
       for (const width of widths) {
         visits.push({
@@ -98,7 +100,11 @@ export function planVisits(rows, ui) {
       }
     }
   }
-  return { visits: visits.slice(0, ui.maxVisits), dropped: Math.max(0, visits.length - ui.maxVisits) };
+  const kept = visits.slice(0, ui.maxVisits);
+  const reached = new Set(kept.map((v) => `${v.path}|${v.state}`));
+  const unvisited = [...seen].filter(([k]) => !reached.has(k))
+    .map(([, row]) => ({ ...row, reason: `over \`ui.maxVisits\` (${ui.maxVisits})` }));
+  return { visits: kept, dropped: visits.length - kept.length, unvisited };
 }
 
 // ---------- findings ----------
@@ -714,8 +720,8 @@ export async function runProbe({ root, id, round = null, outDir = null }) {
 
   if (!ui.serve) return skip('`ui.serve` is not set in factory/config.json.');
   const rows = parseScreens(readFileSync(join(jobDir, 'spec.md'), 'utf8'));
-  r.unreached = rows.filter((x) => !x.path);
   const plan = planVisits(rows, ui);
+  r.unreached = [...rows.filter((x) => !x.path), ...plan.unvisited];
   r.dropped = plan.dropped;
   if (!plan.visits.length) return skip(rows.length ? 'no screen in spec.md\'s Screens table has a URL.' : 'spec.md lists no screens.');
 
