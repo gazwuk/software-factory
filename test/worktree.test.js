@@ -53,6 +53,13 @@ test('refuses links that could be committed or leave the repo', () => {
   assert.ok(!existsSync(join(dir, 'notes.txt')));
   assert.match(prepareWorktree(root, dir, { link: ['../outside'] }).error, /inside the repo/);
 
+  // A link from an earlier run is refused, and removed, once it's no longer ignored.
+  assert.equal(prepareWorktree(root, dir, { link: ['.env'] }).ok, true);
+  writeFileSync(join(dir, '.gitignore'), 'certs\n');
+  assert.match(prepareWorktree(root, dir, { link: ['.env'] }).error, /"\.env" isn't gitignored/);
+  assert.ok(!existsSync(join(dir, '.env')));
+  assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'SECRET=1\n');
+
   // `certs/` matches folders only, and a linked folder is a symlink.
   writeFileSync(join(dir, '.gitignore'), '.env\ncerts/\n');
   assert.match(prepareWorktree(root, dir, { link: ['certs'] }).error, /without a trailing slash/);

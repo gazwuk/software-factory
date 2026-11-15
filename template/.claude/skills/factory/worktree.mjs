@@ -52,18 +52,19 @@ export function linkFiles(root, dir, link = []) {
     if (!existsSync(source)) { skipped.push(`${rel} (not in the main checkout)`); continue; }
     let present = null;
     try { present = lstatSync(dest); } catch { /* not there */ }
-    if (present) {
-      if (present.isSymbolicLink() && resolve(dirname(dest), readlinkSync(dest)) === source) links.push(rel);
-      else skipped.push(`${rel} (the worktree already has it)`);
-      continue;
-    }
+    // A link from an earlier run is checked again: the ignore rules may have changed.
+    const linked = present?.isSymbolicLink() && resolve(dirname(dest), readlinkSync(dest)) === source;
+    if (present && !linked) { skipped.push(`${rel} (the worktree already has it)`); continue; }
     if (!ignored(dir, rel)) {
+      if (linked) unlinkSync(dest);
       // A linked folder is a symlink, which git sees as a file: `name/` doesn't match it.
       const hint = lstatSync(source).isDirectory() ? ` (for a folder, ignore \`${rel}\` without a trailing slash)` : '';
       return { links, skipped, error: `worktree.link "${rel}" isn't gitignored in the worktree, so it could be committed from there${hint}` };
     }
-    mkdirSync(dirname(dest), { recursive: true });
-    symlinkSync(source, dest);
+    if (!linked) {
+      mkdirSync(dirname(dest), { recursive: true });
+      symlinkSync(source, dest);
+    }
     links.push(rel);
   }
   return { links, skipped, error: null };
