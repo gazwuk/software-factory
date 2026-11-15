@@ -310,6 +310,22 @@ test('a lines gate whose output has no locations fails on any problem', () => {
   assert.match(readFileSync(join(jobDir, 'round-1/round.md'), 'utf8'), /failed \(exit 2\): no file:line locations in its output, so every problem counts/);
 });
 
+test('a lines gate still fails when an error follows problems on untouched lines', () => {
+  const gate = { command: 'node lint.mjs {files}; echo "Error: Cannot find module \'x\'" >&2; exit 2', files: ['*.css'], scope: 'lines' };
+  const { root, commit, jobDir } = jobRepo({ 'ui-tokens': gate }, { 'lint.mjs': LINT, 'old.css': 'a { color: #333; }\n' });
+  commit('old.css', 'a { color: #333; }\nb { color: var(--fg); }\n');
+  const r = prepareRound(root, '001-x', 1);
+  assert.deepEqual(r.failed, ['ui-tokens']);
+  const md = readFileSync(join(jobDir, 'round-1/round.md'), 'utf8');
+  assert.match(md, /failed \(exit 2\): 1 older problem on lines the change didn't touch, but output that isn't a problem on a line/);
+  assert.match(md, /Error: Cannot find module 'x'/);
+
+  // npm's banner and failure notes and the linter's summary don't count as errors.
+  const npm = ['> app@1.0.0 lint', '> eslint src', '', 'old.css:1:1: problem', '', '✖ 1 problem (1 error, 0 warnings)',
+    'npm error Lifecycle script `lint` failed with error:', 'npm error code 1'].join('\n');
+  assert.deepEqual(splitProblems(npm, root, new Map()).other, []);
+});
+
 test('splitProblems reads unix and stylish layouts, with colour codes', () => {
   const dir = mkdtempSync(join(tmpdir(), 'factory-split-'));
   temps.push(dir);
@@ -337,6 +353,7 @@ test('splitProblems reads unix and stylish layouts, with colour codes', () => {
       'src/a.css:5:1: Expected variable for "#444" [error]',
     ],
     older: ['src/App.jsx:4:7  error  Visible, non-interactive elements with click handlers  jsx-a11y/click-events-have-key-events'],
+    other: ['nowhere.css:1:1: not a file in the worktree'],
   });
   assert.equal(splitProblems('Error: Could not find config file.', dir, lines), null);
 });

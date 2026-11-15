@@ -295,12 +295,19 @@ export function changeIn(cwd, base) {
   return { files: [...tracked, ...untracked], lines };
 }
 
+// Lines a linter or npm prints around its problems: counts, the --fix hint, npm's
+// script banner and failure notes, and Node's warnings.
+const FOOTER = /^(?:[✖×x]\s*)?\d+ (?:problems?|errors?|warnings?)\b|potentially fixable with the|^> |^npm (?:ERR!|error|warn|notice)\b|^\(node:\d+\)|^\(Use `node --trace-/;
+
 /**
  * Splits a linter's output into the problems on lines the change added or changed
- * and the rest. Reads two layouts: `path:line:col: message` per line (`unix`
- * formatters), and a line holding just a path followed by indented `line:col ...`
- * lines (eslint's default `stylish`, stylelint's default `string`). Returns null if
- * no line names a file in the worktree, so there's no telling which problems are new.
+ * (`added`), the problems on other lines (`older`), and the lines that are neither a
+ * problem nor a file name nor a known footer (`other`: a crash, a config error, a
+ * second command's errors). Reads two layouts: `path:line:col: message` per line
+ * (`unix` formatters), and a line holding just a path followed by indented
+ * `line:col ...` lines (eslint's default `stylish`, stylelint's default `string`).
+ * Returns null if no line names a file in the worktree, so there's no telling which
+ * problems are new.
  */
 export function splitProblems(output, cwd, lines) {
   const root = realpathSync(cwd);
@@ -310,7 +317,7 @@ export function splitProblems(output, cwd, lines) {
     const file = relative(root, realpathSync(abs)).split(sep).join('/');
     return file && !file.startsWith('..') ? file : null;
   };
-  const found = { added: [], older: [] };
+  const found = { added: [], older: [], other: [] };
   const add = (file, line, text) => {
     const changed = lines.get(file);
     (changed === true || changed?.has(line) ? found.added : found.older).push(text);
@@ -332,6 +339,9 @@ export function splitProblems(output, cwd, lines) {
       add(current, Number(indented[1]), `${current}:${text.trim().replace(/\s{3,}/g, '  ')}`);
     } else if (/^\S/.test(text)) {
       current = inWorktree(text);
+      if (!current && !FOOTER.test(text)) found.other.push(text);
+    } else if (text.trim() && !FOOTER.test(text.trim())) {
+      found.other.push(text.trim());
     }
   }
   return any ? found : null;
@@ -372,13 +382,16 @@ export function runCheck(name, spec, cwd, change) {
     const problems = splitProblems(output, cwd, change().lines);
     if (!problems) {
       result.note = 'no file:line locations in its output, so every problem counts';
+    } else if (!problems.added.length && problems.other.length) {
+      result.note = `${plural(problems.older.length, 'older problem')} on lines the change didn't touch, but output that isn't a problem on a line (an error?), so it fails`;
+      return { ...result, output: tail(problems.other.join('\n')) };
     } else if (!problems.added.length) {
       result.exit = 0;
       result.note = `${plural(problems.older.length, 'older problem')} on lines the change didn't touch`;
       return { ...result, output: '' };
     } else {
       result.note = `${plural(problems.added.length, 'problem')} on changed lines; ${problems.older.length} older ignored`;
-      return { ...result, output: tail(problems.added.join('\n')) };
+      return { ...result, output: tail([...problems.added, ...problems.other].join('\n')) };
     }
   }
   return { ...result, output: tail(output) };

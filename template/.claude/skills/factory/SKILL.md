@@ -526,7 +526,8 @@ Done by you directly, no agent. Re-runnable.
    the gate when there are none. With `scope: "lines"` it reads the `path:line`
    locations in the output (eslint's and stylelint's default formats, or `unix`) and
    fails only on problems on lines the change added or changed, so problems already
-   in the repo never block a job. A failure reaches the builder like any other check.
+   in the repo never block a job. Output that isn't a problem on a line (a crash, a
+   config error) still fails the gate. A failure reaches the builder like any other check.
    Use these names, so the UI and UX reviewers know what's covered.
    - **Design tokens (`ui-tokens`):** when the repo has design tokens (CSS custom
      properties, or Sass or Less variables) and uses stylelint (a dependency, a
