@@ -216,8 +216,9 @@ function gitHeaderPath(line) {
 /**
  * A unified diff with each context and added line's number in the file's new version
  * in the margin (removed lines have none), under one `=== <file>` line per file. The
- * header says when a file was deleted, renamed or copied, and keeps mode changes, so a
- * file with no hunks (a mode change, a pure rename, a binary file) still shows.
+ * header says when a file was deleted, renamed or copied, and keeps a new file's mode
+ * and mode changes, so a file with no hunks (a mode change, a pure rename, a binary
+ * file) still shows, and a new executable or symlink differs from a new regular file.
  */
 export function numberDiff(patch) {
   const out = [];
@@ -237,7 +238,7 @@ export function numberDiff(patch) {
       n = null;
     } else if (!file) {
       continue;
-    } else if (n === null && /^(old|new) mode /.test(line)) {
+    } else if (n === null && /^(old|new|new file) mode /.test(line)) {
       file.modes.push(line);
     } else if (n === null && line.startsWith('deleted file mode ')) {
       file.deleted = true;

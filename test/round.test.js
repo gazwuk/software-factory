@@ -425,6 +425,9 @@ test('numberDiff keeps mode changes, renames and files with no hunks', () => {
     '--- a/a.js', '+++ b/lib/a.js', '@@ -2 +2 @@', '-x', '+y',
     'diff --git "a/caf\\303\\251.png" "b/caf\\303\\251.png"', 'index 1..2 100644', 'Binary files "a/caf\\303\\251.png" and "b/caf\\303\\251.png" differ',
     'diff --git a/my theme.css b/my theme.css', 'new file mode 100644', 'index 0..1',
+    'diff --git a/go.sh b/go.sh', 'new file mode 100755', 'index 0..1',
+    'diff --git a/link b/link', 'new file mode 120000', 'index 0..1', '--- /dev/null', '+++ b/link', '@@ -0,0 +1 @@', '+go.sh',
+    '\\ No newline at end of file',
   ].join('\n');
   assert.equal(numberDiff(patch), [
     '=== run.sh',
@@ -442,6 +445,16 @@ test('numberDiff keeps mode changes, renames and files with no hunks', () => {
     '      Binary files "a/caf\\303\\251.png" and "b/caf\\303\\251.png" differ',
     '',
     '=== my theme.css',
+    '      new file mode 100644',
+    '',
+    '=== go.sh',
+    '      new file mode 100755',
+    '',
+    '=== link',
+    '      new file mode 120000',
+    '      @@ -0,0 +1 @@',
+    '    1 +go.sh',
+    '      \\ No newline at end of file',
   ].join('\n'));
 });
 
@@ -451,7 +464,7 @@ test('numberedDiff numbers a real worktree diff and can show only some files', (
   commit('b.css', 'a {}\nb {}\nc {}\nd { color: #333; }\ne {}\n');
   const mergeBase = execFileSync('git', ['merge-base', 'main', 'HEAD'], { cwd: wt }).toString().trim();
   const all = numberedDiff(wt, mergeBase, 'HEAD');
-  assert.match(all, /=== a\.js\n.*\n {4}1 \+one/);
+  assert.match(all, /=== a\.js\n {6}new file mode 100644\n.*\n {4}1 \+one/);
   assert.match(all, /^ {4}4 \+d \{ color: #333; \}$/m);
   assert.doesNotMatch(numberedDiff(wt, mergeBase, 'HEAD', ['b.css']), /a\.js/);
 
