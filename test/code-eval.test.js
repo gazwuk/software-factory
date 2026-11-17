@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
-import { loadCases, main, parseArgs } from './evals/code.mjs';
+import { loadCases, main, parseArgs, rescore } from './evals/code.mjs';
 import { scoreReview } from './evals/score.mjs';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -25,6 +25,7 @@ test('every case defect points at the lines it describes in the reviewed commit'
     const spans = [];
     for (const d of c.defects) {
       assert.equal(d.lane, 'code', `${c.id}/${d.id}`);
+      assert.ok(d.terms?.length && d.terms.every((t) => t === t.toLowerCase()), `${d.id}: terms must be lowercase and not empty`);
       for (const loc of d.locations) {
         const lines = show(c.head, loc.file).split('\n');
         const [from, to] = loc.lines;
@@ -80,6 +81,25 @@ test('scoreReview finds a case defect by a bare file name and counts the rest as
   assert.equal(s.blocking, 2);
   assert.equal(s.matched, 1);
   assert.equal(s.recall, 0.5);
+});
+
+test('a finding that cites a defect\'s lines without any of its terms doesn\'t find it', () => {
+  const broad = REVIEW.replace('Problem: …', 'Problem: drive() has no test.').replace('runner.mjs:10`', 'runner.mjs:600-690`');
+  const s = scoreReview({ review: broad, lane: 'code', fixture: PR9, probe: null });
+  assert.deepEqual(s.found, ['activity-cleanup-throws']);
+  assert.equal(s.matched, 1, 'the missing-test finding spans the defect but names none of its terms');
+});
+
+test('rescore scores saved reviews again and rewrites the summary', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'factory-eval-rescore-'));
+  temps.push(dir);
+  const path = join(dir, 'results.json');
+  const stale = { recall: 0, found: [], blocking: 0, matched: 0, unmatched: 0, cost: 0.25 };
+  writeFileSync(path, JSON.stringify({ variant: 'code-sonnet', runs: 1, cases: [PR9.id], results: [{ cases: { [PR9.id]: { ...stale, review: REVIEW } } }] }));
+  const result = rescore(path);
+  assert.deepEqual(result.results[0].cases[PR9.id].found, ['activity-cleanup-throws']);
+  assert.equal(result.results[0].cases[PR9.id].cost, 0.25);
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).summary.recall, { mean: 0.5, min: 0.5, max: 0.5 });
 });
 
 test('eval:code-reviewer rebuilds a case as a job and scores the review (fake agent)', { skip: !history && 'a shallow clone lacks the cases\' commits' }, async () => {

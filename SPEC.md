@@ -642,8 +642,11 @@ preparation, running the reviewers, result files).
   and committed. Round 1 is prepared and reviewed as in the UI benchmark. Cases run in
   parallel.
 - **Scoring:** `scoreReview` with lane `code`. A bare file name (`runner.mjs:406`)
-  counts as a citation of that file. Unmatched = blocking findings that match no
-  defect; with real code these aren't all false positives.
+  counts as a citation of that file. Each defect has lowercase `terms`, and a
+  `file:line` citation finds it only when the finding's words contain one, so a
+  broad finding doesn't collect every defect its range overlaps. Unmatched = blocking
+  findings that match no defect; with real code these aren't all false positives.
+  `--rescore <results.json>` rescores saved reviews with the current cases and scorer.
 - **Output:** per model, `--runs` runs (default 3) of the `--cases` (default all):
   recall per case and over all cases, blocking and unmatched counts, per-defect hit
   counts and cost. Written to `test/evals/results/<date>-code-<model>.json` with the

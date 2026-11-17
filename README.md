@@ -483,11 +483,18 @@ npm run eval:code-reviewer -- --runs 1 --cases pr9-runner-progress --models sonn
 A run rebuilds each case as a factory job (main is the PR's merge base, the job
 branch adds the reviewed commit's change) and runs the code reviewer on round 1,
 with a spec and build notes in `test/evals/code/jobs/` that say only what the PR set
-out to do. It needs this repo's full history, so not a shallow clone. Scoring is the
-same `file:line` matching, and it prints recall per case and overall, blocking
-findings that match no known defect (false positives, or real problems Copilot
-didn't raise: read them in the results file), how often each defect was found, and
-cost. Results go to `test/evals/results/<date>-code-<model>.json`.
+out to do. It needs this repo's full history, so not a shallow clone.
+
+**Cost:** about $1 a run on Sonnet (three reviews), so about $3 for the default.
+
+**Scoring** is the same `file:line` matching, plus each defect's `terms`: a finding
+that cites a defect's lines finds it only if it also uses one of them, so "no tests
+for `probe.mjs:590-735`" doesn't find every defect in that range. It prints recall
+per case and overall, blocking findings that match no known defect (false positives,
+or real problems Copilot didn't raise: read them in the results file), how often
+each defect was found, and cost. Results go to
+`test/evals/results/<date>-code-<model>.json`. After changing the cases or the
+scorer, `--rescore <results.json>` scores the saved reviews again with no new runs.
 
 ## Tips
 

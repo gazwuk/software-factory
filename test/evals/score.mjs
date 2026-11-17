@@ -8,8 +8,10 @@
 // or screenshot that maps to it. A probe item maps to a defect when it matches the
 // defect's `probe` (kind, rule, and a substring of the target). A screenshot maps to
 // a defect when its visit is in the defect's `state` and the finding uses one of its
-// `keywords`. A finding that finds no defect but cites a control's location is a
-// false positive on the controls.
+// `keywords`. A defect with `terms` is found by a `file:line` citation only when the
+// finding also uses one of them, so a broad finding (a missing test cited at
+// `file:590-735`) doesn't find every defect in its range. A finding that finds no
+// defect but cites a control's location is a false positive on the controls.
 import { numbered, probeIds } from '../../template/.claude/skills/factory/probe.mjs';
 
 const LANES = ['ui', 'ux'];
@@ -79,8 +81,9 @@ export function probeIndex(probe) {
 export function matchFinding(finding, fixture, index) {
   // Keywords count in the finding's words, not in the names of the files it cites.
   const text = finding.text.replace(/[\w./-]+\.(png|[A-Za-z]\w*:\d+)/g, ' ').toLowerCase();
+  const says = (d) => !d.terms || d.terms.some((t) => text.includes(t.toLowerCase()));
   const defects = fixture.defects.filter((d) => (
-    finding.cites.lines.some((c) => atLocation(c, d.locations))
+    (finding.cites.lines.some((c) => atLocation(c, d.locations)) && says(d))
     || finding.cites.probe.some((id) => probeMatch(index.items.get(id), d.probe))
     || finding.cites.shots.some((s) => {
       const v = index.shots.get(s);

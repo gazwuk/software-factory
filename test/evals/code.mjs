@@ -4,6 +4,7 @@
 //
 //   npm run eval:code-reviewer -- [--runs 3] [--models sonnet,opus]
 //                                 [--cases pr9-runner-progress,...] [--out <dir>] [--keep]
+//   npm run eval:code-reviewer -- --rescore <results.json>
 //
 // Each case in test/evals/code/cases.json is a commit GitHub Copilot reviewed on one of
 // this repo's PRs, with the defects it found there that were confirmed and fixed
@@ -16,6 +17,9 @@
 // The factory is installed in the throwaway repo but not committed, so the job's
 // worktree holds only the code under review: the installed copy is newer and has the
 // fixes.
+//
+// --rescore scores a results file's saved reviews again with the current cases and
+// score.mjs, and rewrites it, so a scoring change needs no new agent runs.
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -138,6 +142,24 @@ export function summarize(runs, cases) {
   };
 }
 
+/** Scores a results file's saved reviews again with the current cases and scorer, and rewrites the file. */
+export function rescore(path, cases = loadCases()) {
+  const result = readJson(path);
+  const picked = cases.filter((c) => result.cases.includes(c.id));
+  for (const run of result.results) {
+    for (const c of picked) {
+      const r = run.cases[c.id];
+      if (!r) continue;
+      const score = scoreReview({ review: r.review, lane: 'code', fixture: c, probe: null });
+      Object.assign(r, score, { unmatched: score.blocking - score.matched });
+    }
+  }
+  result.summary = summarize(result.results, picked);
+  result.rescored = new Date().toISOString();
+  writeFileSync(path, `${JSON.stringify(result, null, 2)}\n`);
+  return result;
+}
+
 export function renderSummary(variant, runs, summary) {
   const out = [`\n${variant} — ${runs} run(s)`, ''];
   out.push('| Case | Defects | Recall | Blocking findings | Unmatched | Cost per run |');
@@ -155,6 +177,14 @@ export function renderSummary(variant, runs, summary) {
 
 export async function main(argv, { log = console.log } = {}) {
   const all = loadCases();
+  if (argv[0] === '--rescore') {
+    if (!argv[1]) throw new Error('--rescore takes a results file');
+    const path = resolve(argv[1]);
+    const result = rescore(path, all);
+    log(renderSummary(result.variant, result.runs, result.summary));
+    log(`\nRescored ${path}`);
+    return [path];
+  }
   const opts = parseArgs(argv, all);
   const cases = all.filter((c) => opts.cases.includes(c.id));
   await preflightClaude();
