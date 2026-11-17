@@ -48,6 +48,15 @@ test('citations reads file:line, ranges, probe IDs and screenshots', () => {
   ]);
   assert.deepEqual(c.probe, ['F2', 'W10']);
   assert.deepEqual(c.shots, ['orders-default-320-light.png']);
+  assert.deepEqual(citations('`runner.mjs:394`, `:407-411` and line 12:30 of AC2:5').lines, [
+    { file: 'runner.mjs', from: 394, to: 394 },
+    { file: 'runner.mjs', from: 407, to: 411 },
+  ]);
+  assert.deepEqual(citations('see :12 first').lines, [], 'a bare range needs a file before it');
+  assert.deepEqual(citations('`probe.mjs:451,504-506`, 3 items').lines, [
+    { file: 'probe.mjs', from: 451, to: 451 },
+    { file: 'probe.mjs', from: 504, to: 506 },
+  ]);
 });
 
 // A probe.json as probe.mjs writes it, cut down to what scoring reads.

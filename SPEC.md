@@ -642,7 +642,8 @@ preparation, running the reviewers, result files).
   and committed. Round 1 is prepared and reviewed as in the UI benchmark. Cases run in
   parallel.
 - **Scoring:** `scoreReview` with lane `code`. A bare file name (`runner.mjs:406`)
-  counts as a citation of that file. Each defect has lowercase `terms`, and a
+  counts as a citation of that file, and so do a bare `:407-411` after a file
+  reference and each item of `probe.mjs:451,504` (for every reviewer). Each defect has lowercase `terms`, and a
   `file:line` citation finds it only when the finding's words contain one, so a
   broad finding doesn't collect every defect its range overlaps. Unmatched = blocking
   findings that match no defect; with real code these aren't all false positives.

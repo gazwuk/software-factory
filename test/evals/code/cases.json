@@ -36,7 +36,7 @@
           "locations": [{ "file": "template/.claude/skills/factory/board.mjs", "lines": [100, 105], "text": "signal?.throwIfAborted()" }]
         },
         {
-          "id": "detached-agents-outlive-lock", "lane": "code", "terms": ["detached", "surviv", "orphan", "outlive", "still running", "left running", "crash"], "source": "harness/claude-code.mjs:98",
+          "id": "detached-agents-outlive-lock", "lane": "code", "terms": ["surviv", "outlive", "orphan", "crash", "restart", "hard kill", "sigkill", "kill -9"], "source": "harness/claude-code.mjs:98",
           "description": "Agents run detached and survive a crashed runner, but the job lock records only the runner's pid, so a restarted runner reclaims the job and starts a second agent in the same worktree.",
           "locations": [
             { "file": "template/.claude/skills/factory/harness/claude-code.mjs", "lines": [96, 98], "text": "detached: true" },
@@ -59,7 +59,7 @@
           "locations": [{ "file": "template/.claude/skills/factory/runner.mjs", "lines": [529, 531], "text": "claimBacklogItem(root" }]
         },
         {
-          "id": "job-flag-without-value", "lane": "code", "terms": ["empty", "missing", "no value", "undefined", "--job="], "source": "runner.mjs:696-697",
+          "id": "job-flag-without-value", "lane": "code", "terms": ["--job", "no id", "without an id", "no value", "without a value", "empty value"], "source": "runner.mjs:696-697",
           "description": "`run --job` or `run --job=` leaves opts.job empty, so main() takes the no-job branch and runs (and merges) the whole queue instead of rejecting the command.",
           "locations": [
             { "file": "template/.claude/skills/factory/runner.mjs", "lines": [696, 696], "text": "opts.job = value()" },
@@ -114,7 +114,7 @@
       "pr": 12,
       "base": "370c50582f66a33f059652e3d5eddd38b5ac1ec4",
       "head": "5264e53fba583e991b5e2659776baa369d17c729",
-      "exclude": ["test/evals/results", "test/evals/ui"],
+      "exclude": ["test/evals/results"],
       "defects": [
         {
           "id": "probe-urls-leak-secrets", "lane": "code", "terms": ["secret", "token", "credential", "leak", "redact", "sensitive", "password"], "source": "probe.mjs:487-490",
@@ -122,7 +122,7 @@
           "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [484, 491], "text": "req.url()" }]
         },
         {
-          "id": "tab-trap-first-stop", "lane": "code", "terms": ["trap", "first stop"], "source": "probe.mjs:462-466",
+          "id": "tab-trap-first-stop", "lane": "code", "terms": ["first stop is", "on the first stop", "at the first stop", "first stop that", "first stop keeps", "first stop traps", "trap on the first", "trap at the first", "first tab stop", "first focusable"], "source": "probe.mjs:462-466",
           "description": "A focus trap on the first Tab stop is reported as a complete walk: the repeated stop equals stops[0], so the completion check fires before the trap check.",
           "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [462, 466], "text": "s.id === stops[0].id" }]
         },
@@ -132,7 +132,7 @@
           "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [591, 593], "text": "mergeBase, 'HEAD'" }]
         },
         {
-          "id": "app-start-no-finding", "lane": "code", "terms": ["start"], "source": "probe.mjs:720-727",
+          "id": "app-start-no-finding", "lane": "code", "terms": ["no finding", "no item", "u item", "nothing to answer", "doesn't block", "don't block", "not run", "review from the diff"], "source": "probe.mjs:720-727",
           "description": "When neither the head nor the base app starts, the probe returns an error report with no finding, so reviews proceed without answering the startup failure.",
           "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [719, 720], "text": "the app didn't start" }]
         },

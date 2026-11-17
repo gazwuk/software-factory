@@ -1,0 +1,727 @@
+{
+  "date": "2026-11-17T09:39:51.532Z",
+  "variant": "code-opus",
+  "model": "opus",
+  "runs": 3,
+  "cases": [
+    "pr8-headless-runner",
+    "pr9-runner-progress",
+    "pr12-ui-probe"
+  ],
+  "summary": {
+    "cases": {
+      "pr8-headless-runner": {
+        "defects": 12,
+        "recall": {
+          "mean": 0.3333333333333333,
+          "min": 0.25,
+          "max": 0.4166666666666667
+        },
+        "blocking": {
+          "mean": 6.666666666666667,
+          "min": 6,
+          "max": 7
+        },
+        "unmatched": {
+          "mean": 2.6666666666666665,
+          "min": 2,
+          "max": 3
+        },
+        "cost": {
+          "mean": 1.2639333333333334,
+          "min": 1.2294,
+          "max": 1.29
+        }
+      },
+      "pr9-runner-progress": {
+        "defects": 2,
+        "recall": {
+          "mean": 0.6666666666666666,
+          "min": 0.5,
+          "max": 1
+        },
+        "blocking": {
+          "mean": 4.333333333333333,
+          "min": 4,
+          "max": 5
+        },
+        "unmatched": {
+          "mean": 3,
+          "min": 3,
+          "max": 3
+        },
+        "cost": {
+          "mean": 0.7188,
+          "min": 0.6304,
+          "max": 0.802
+        }
+      },
+      "pr12-ui-probe": {
+        "defects": 11,
+        "recall": {
+          "mean": 0.1818181818181818,
+          "min": 0.18181818181818182,
+          "max": 0.18181818181818182
+        },
+        "blocking": {
+          "mean": 8,
+          "min": 8,
+          "max": 8
+        },
+        "unmatched": {
+          "mean": 6,
+          "min": 6,
+          "max": 6
+        },
+        "cost": {
+          "mean": 1.6753666666666664,
+          "min": 1.5858,
+          "max": 1.8133
+        }
+      }
+    },
+    "defects": 25,
+    "recall": {
+      "mean": 0.29333333333333333,
+      "min": 0.24,
+      "max": 0.36
+    },
+    "cost": {
+      "mean": 3.6580999999999997,
+      "min": 3.5298,
+      "max": 3.8273
+    },
+    "hits": {
+      "runner-probe-misses-job-locks": 1,
+      "backlog-append-unlocked": 0,
+      "stale-lock-takeover-race": 2,
+      "abort-after-acquire": 0,
+      "detached-agents-outlive-lock": 0,
+      "ship-deletes-branch-first": 1,
+      "record-commit-failure-ignored": 1,
+      "backlog-ticked-before-job": 0,
+      "job-flag-without-value": 2,
+      "approve-outside-job-lock": 2,
+      "resume-loses-verdicts": 0,
+      "queued-check-starts-after-abort": 3,
+      "activity-cleanup-throws": 1,
+      "stale-activity-never-expires": 3,
+      "probe-urls-leak-secrets": 0,
+      "tab-trap-first-stop": 0,
+      "dep-guard-ignores-uncommitted": 1,
+      "app-start-no-finding": 2,
+      "diff-path-quoting": 0,
+      "numbered-diff-drops-modes": 0,
+      "axe-truncated-before-compare": 0,
+      "screenshot-name-collision": 3,
+      "max-visits-drops-states": 0,
+      "existing-link-skips-ignore-check": 0,
+      "lines-gate-fails-open": 0
+    }
+  },
+  "results": [
+    {
+      "cases": {
+        "pr8-headless-runner": {
+          "verdict": "CHANGES",
+          "blocking": 7,
+          "matched": 5,
+          "precision": 0.7142857142857143,
+          "recall": 0.4166666666666667,
+          "found": [
+            "queued-check-starts-after-abort",
+            "ship-deletes-branch-first",
+            "record-commit-failure-ignored",
+            "stale-lock-takeover-race",
+            "approve-outside-job-lock"
+          ],
+          "foundInLane": [
+            "stale-lock-takeover-race",
+            "ship-deletes-branch-first",
+            "record-commit-failure-ignored",
+            "approve-outside-job-lock",
+            "queued-check-starts-after-abort"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "queued-check-starts-after-abort"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "ship-deletes-branch-first",
+                "record-commit-failure-ignored"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "record-commit-failure-ignored"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [
+                "stale-lock-takeover-race"
+              ],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [
+                "approve-outside-job-lock"
+              ],
+              "controls": []
+            },
+            {
+              "n": 7,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 2,
+          "ok": true,
+          "error": null,
+          "cost": 1.29,
+          "tokens": 734100,
+          "seconds": 241,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr8-headless-runner, round 1\n\n## Summary\nThe runner follows SKILL.md closely, and the end-to-end tests with a fake `claude` cover the main path, resume after a killed builder, a second round, approve/rework and preflight. Tracing the stop, crash, concurrency and bad-config cases turned up defects in four places: Ctrl+C with queued checks, the checks cap across processes, resuming a half-finished ship, and stale-lock takeover. AC3 and AC7 also have gaps in their tests.\n\n## Blocking\n1. **Ctrl+C doesn't stop checks that were waiting for a slot** — `template/.claude/skills/factory/runner.mjs:646-658`, `:662-668` (the same pattern is in `harness/claude-code.mjs:96-103`)\n   Problem: with `--parallel 2` and `maxParallelChecks: 1`, job B waits in `limiter` while job A's `round.mjs` runs. On Ctrl+C, A's process group gets SIGTERM and closes. The limiter then gives the slot to B, and `runNode` spawns B's `round.mjs` with a signal that has already aborted. `signal.addEventListener('abort', …)` never fires for a signal that is already aborted, so nothing kills B's checks. The runner waits for B's whole test suite, and then for each queued job after it, one by one. A second Ctrl+C calls `process.exit(130)` and leaves those detached checks running. This breaks AC5 (\"stops … the checks it started\").\n   Required change: don't start work once the signal has aborted. Check `signal.aborted` before spawning in `runNode` (and in the harness's `run`), and have the limiter reject waiters on abort. Add a test that sends SIGTERM while one job's checks hang and another job's checks are queued, then asserts the runner exits promptly and no `round.mjs` / check process is left alive.\n\n2. **`maxParallelChecks` only holds within one process, and nothing tests it** — `runner.mjs:733`; build.md AC7 says \"manual\"\n   Problem: `limiter()` is an in-memory counter for each `main()` call. `run --job <id>` and `rework <id>` are meant to run alongside a scheduler (SPEC.md \"Scheduling\", SKILL.md hand-off table), and each of them gets its own limiter. With `maxParallelChecks: 1`, a scheduler plus a `rework` can run two test suites at once, which is what the README says the setting prevents (\"so test suites don't fight over ports or databases\"). AC7 also has no test.\n   Required change: enforce the cap across processes, for example with N slot locks `factory/.locks/checks-<k>` taken through `tryLock`/`withLockAsync`. Add a test that would fail if two jobs' checks overlapped (two jobs whose `checks.test` command records start and end times or holds a marker file, under `--parallel 2`).\n\n3. **A runner killed during ship can't finish the job afterwards** — `runner.mjs:394`, `:407-411`\n   Problem: if the runner is killed after `git branch -d` (line 407) but before `updateJob(... 'merged')` (line 411), the job is left in stage `approval` with decision `APPROVE`. On restart `nextAction` returns `ship`. Because the branch is gone, `merge-base --is-ancestor factory/<id> <base>` fails, so `ship` tries `git merge` of a branch that doesn't exist and the job goes to `needs-human` with \"merge failed\". `approve` then fails the same way every time. The work is already in base, but the record commit (line 410) never happens and the job can't reach `merged`. This breaks AC2 for the ship step.\n   Required change: make ship safe to repeat once the merge has happened. For example, write `mergedSha` (or a `shipped` flag) to the board straight after the merge and skip to cleanup when it's set. Or treat \"branch missing and base has a `factory: merge <id> —` commit\" as already merged. Add a `nextAction`/ship test for the case where the branch is gone.\n\n4. **A failed record commit is ignored and the job is still marked merged** — `runner.mjs:409-411`\n   Problem: `gitTry(['add', …])` and `gitTry(['commit', …])` throw away any failure. Typical causes are a pre-commit hook in the user's repo, or `index.lock` held by a concurrent session or user git command in the main checkout. When that happens, the job still goes to `merged`, logs \"merged into …\" and comments on the issue, and the job files and cost records (AC1) silently stay uncommitted.\n   Required change: check the commit result. On failure (other than \"nothing to commit\"), log it and record it on the job, e.g. note `merged; couldn't commit factory/jobs/<id>: <reason>`, so the user knows the record needs committing by hand.\n\n5. **Stale-lock takeover can leave two holders** — `template/.claude/skills/factory/board.mjs:66-79`, `:83-87`\n   Problem: lock L is held by a process S that has died. Contenders A and B both read S as stale. B moves L aside, removes it and takes L fresh. A then renames L, which is now B's live lock, to `movedA`, reads pid B ≠ S, and tries to put it back. If a third process C takes the empty L in that gap, A's rename-back fails (line 75), B's lock is stranded in `movedA`, and B and C both believe they hold L. Later `unlock()` by B (line 85) renames away and deletes C's lock, because `unlock` never checks ownership, so a fourth process can then enter too. This breaks AC4's mutual exclusion for the board, ids and backlog locks after any crash while one of them is held. The concurrency test (`board.test.js:90`) never starts from a stale lock, so it can't catch this.\n   Required change: serialise takeovers, for example by holding a `<name>.reap` guard (mkdir) while reading and moving the stale lock, so only one process can move L at a time. Make `unlock` remove only a lock whose pid is `process.pid`. Add a multi-process test that starts from a stale lock.\n\n6. **One-driver-per-job (AC3) is untested, and `approve`/`rework` check-then-act outside the job lock** — `runner.mjs:752-767`, `:586-591`\n   Problem: the only AC3 test (`runner.test.js:272`) covers the second scheduler. Nothing exercises the `job-<id>` lock: a scheduler and `run --job` on the same job, or `rework` while a scheduler is running. Also, `approve` and `rework` read `job.stage === 'needs-human'` and then act without holding `job-<id>`. Two concurrent commands on the same job, such as `approve` while `rework` is writing `human.md` and moving `decision.md`, can both pass the check. `ship()` would then remove the worktree the reworking builder is using.\n   Required change: take `job-<id>` (with `tryLock`, refusing if it's held) before the stage check in `approve` and `rework`, and keep holding it through `drive`, or let `drive` accept an already-held lock. Add a test where a second process tries to drive or rework a job another process holds, and assert it backs off without running agents.\n\n7. **Bad `runner` config values hang or silently do nothing** — `runner.mjs:727`, `:733`, `:743`\n   Problem: `--parallel` is validated (line 695), but the config values are not. A non-numeric `maxParallelChecks` (e.g. `\"one\"`) gives `limiter(NaN)`, where `active < NaN` is always false, so every job's checks wait forever. `parallel: 0` makes `runAll` exit at once with \"nothing left to run\" while the backlog is full.\n   Required change: validate `config.runner.parallel` and `maxParallelChecks` as whole numbers ≥ 1 in `main()`, and fail with a clear message as `--parallel` does. Add a small test for this.\n\n## Coverage\n- Read: README.md, SPEC.md, bin/cli.js, package.json, src/run.js, src/util.js, template/.claude/skills/factory/SKILL.md (diff plus the New job, Review round, Approval, Ship, Next, Resume, Approve and Rework sections), template/.claude/skills/factory/board.mjs, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs (all 783 lines), template/.claude/skills/factory/usage.mjs, template/factory/config.json, test/board.test.js, test/cli.test.js, test/fixtures/fake-claude.mjs, test/runner.test.js; also round.mjs, for the round.json and summary shapes the runner reads.\n- Not read: None.\n\n## Suggestions (non-blocking)\n- Possible Duplicated Code: `runNode` (runner.mjs:662) and the harness's `run` (claude-code.mjs:96) are the same spawn-in-a-process-group, kill-on-abort helper. One shared helper would fix #1 in one place.\n- `rework` writes `human.md`, moves `decision.md` and sets stage `build` before `preflight()` (runner.mjs:762-766). Running preflight first would avoid changing the job when the command then exits with \"claude missing\".\n- `claimNext` ticks the backlog item (inside `claimBacklogItem`) before `createJob` writes `request.md` and the board entry (runner.mjs:529-531). A kill in that gap leaves the item ticked with no job. Consider creating the job inside the `idFor` callback.\n- `checkFixes[n]` is incremented only after the fix builder returns (runner.mjs:288). A runner killed after the builder's commit gives the job one extra fix attempt on resume. This is harmless but worth a comment.\n- `\"test\": \"node --test test/*.test.js\"` relies on the shell expanding the glob, which `npm test` on Windows with Node 18–20 won't do. Listing the files, or keeping fixtures out of `test/`, avoids that.\n- `shipPr` repeated after a crash (PR already open) fails `gh pr create` and goes to needs-human. Looking up an existing PR for the branch first would make it safe to repeat.\n",
+          "repo": null
+        },
+        "pr9-runner-progress": {
+          "verdict": "CHANGES",
+          "blocking": 5,
+          "matched": 2,
+          "precision": 0.4,
+          "recall": 1,
+          "found": [
+            "stale-activity-never-expires",
+            "activity-cleanup-throws"
+          ],
+          "foundInLane": [
+            "activity-cleanup-throws",
+            "stale-activity-never-expires"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "stale-activity-never-expires"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "activity-cleanup-throws"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 3,
+          "ok": true,
+          "error": null,
+          "cost": 0.724,
+          "tokens": 462334,
+          "seconds": 135,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr9-runner-progress, round 1\n\n## Summary\nThe streaming harness, per-tool-call log lines, heartbeat and activity files are mostly sound, and the reviewers' parallel steps are handled with a per-job Set. But the dashboard can keep showing a crashed runner's steps, failed agents get no finish line, `drive()`'s cleanup can leak the job lock, the duration formatter prints \"60m\" and \"1h 60m\", and AC2 and AC4 have no tests that would fail if the code were wrong.\n\n## Blocking\n1. **Stale activity only disappears when something else re-renders** — `template/factory/dashboard.html:595-599`, `:356-360`, `:899`\n   Problem: staleness is checked only inside `activityOf()` at render time. `pollActivity()` triggers a render only when the raw file text changes. A crashed runner's file never changes again, so the poll never triggers a render. The only other trigger is the 30s ticker, and that skips rendering while a drawer is open (`if (!openJob) render()`). So with a job drawer open, a SIGKILLed runner's steps stay on the card indefinitely, with their \"since\" time frozen. AC5 says a crashed runner leaves nothing showing.\n   Required change: drop stale files in `pollActivity()`, i.e. leave out of `next` any file whose `updatedAt` is more than `ACTIVITY_STALE_MS` old. Then the comparison sees a change when a file goes stale and re-renders. `activityOf()` can then just look the job up.\n\n2. **Failed agents print no finish line** — `template/.claude/skills/factory/runner.mjs:237-240`\n   Problem: the `finished in …` line is only logged when `result.ok`. Some agents exit non-zero or return `is_error` (an API error, max turns, a crash). If such an agent still wrote its file, nothing is logged at all. If it didn't, only `builder: <error>` is logged, with no duration. AC3 says *each* agent ends with how long it took and its one-line reply.\n   Required change: log the finish line for every non-aborted run. Use the duration plus the reply on success, and the duration plus `result.error` (or the reply) on failure, e.g. `builder failed after 3m: …`.\n\n3. **`drive()`'s cleanup can skip `unlock`** — `template/.claude/skills/factory/runner.mjs:678-679`\n   Problem: `rmSync(activityFile(...), { force: true })` runs unguarded before `unlock(lock)` in the `finally`. `force` only suppresses ENOENT. Any other error (EACCES, EPERM, or EBUSY on some filesystems) throws out of the `finally`. That leaves `job-<id>` locked by a live process, so other runners skip the job. It also replaces the original error. `saveActivity()` already treats progress as never failing a job, but this call doesn't.\n   Required change: wrap the removal in `try { … } catch {}`, or call `unlock` first, so the lock is always released.\n\n4. **Duration formatting rounds up to \"60m\" and \"1h 60m\"** — `template/.claude/skills/factory/runner.mjs:693`, `template/factory/dashboard.html:352`\n   Problem: minutes use `Math.round`. From 3570s to 3599s this prints `60m`, and from 7170s to 7199s it prints `1h 60m`. It also shows `2m` at 90s. Both the log lines (AC2, AC3) and the dashboard card use this formatter.\n   Required change: use `Math.floor` for the minute parts in both places.\n\n5. **AC2 and AC4 have no tests, and the other progress cases are only partly covered** — `test/runner.test.js:218-222`, `:230-234`\n   Problem: build.md cites tests that don't exist (\"prints each tool call\", \"activity file during a run and its cleanup\"). Nothing tests:\n   - the `still working (<duration>; last: <call>)` line (AC2);\n   - the file being *rewritten* while a step runs (AC4). The test only checks the file exists once;\n   - the file being removed after a stopped runner (the SIGTERM test at `:235-238` never checks `factory/activity/` afterwards);\n   - paths relative to the *worktree* (AC1). The fake's only tool call is under the repo root;\n   - the new `factory/activity/` gitignore entry (`src/util.js:13`). `cli.test.js:53-56` checks the other entries but not this one.\n\n   If you deleted `heartbeat()`, the SIGTERM cleanup or the worktree stripping in `short()`, no test would fail.\n   Required change: add tests for each of these. `heartbeat`/`begin` are module-private and hard-coded to 15s/60s, so either export them and test with a fake `ctx` whose step has `quietFrom` backdated, or let the intervals be overridden for tests. Have the fake claude emit a worktree-path tool call. After the SIGTERM in the killed-runner test, assert `factory/activity/001-add-gamma.json` is gone. Add `factory/activity/` to the gitignore assertions in `cli.test.js`.\n\n## Coverage\n- Read: README.md, SPEC.md, src/util.js, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs, template/factory/dashboard.html, test/fixtures/fake-claude.mjs, test/runner.test.js (plus src/dashboard.js and board.mjs `now`/`writeJsonAtomic` for context)\n- Not read: None.\n\n## Suggestions (non-blocking)\n- `run()` builds lines with `pending + d` on raw Buffers. A UTF-8 character split across chunks becomes U+FFFD, which can mangle the printed reply or a tool-call line. `child.stdout.setEncoding('utf8')` fixes it. This was already true of the old `stdout += d`, but stream-json lines are much longer now.\n- Possible Duplicated Code: `elapsed` (runner) and `since` (dashboard) are the same formatter. The static page can't import it, so this is acceptable, but a comment pointing at the twin would keep the fix in #4 from drifting.\n- `pollActivity()` fetches `activity/<id>.json` for every active job every 2s. For jobs run in a session that file never exists, so the browser console fills with 404s. You could skip the fetch when `config.runner.headless` is false, or treat a 404 as quiet.\n- AC5's dashboard behaviour has no automated test, and the repo has no DOM test harness. Pulling the staleness filter from #1 into a small pure function would at least make it easy to check.\n- The `checks` step stores the check names in `last`, so a quiet check run logs `checks still working (2m; last: test)`. That reads as if `test` was a tool call. Showing the names without the `last:` label would be clearer.\n",
+          "repo": null
+        },
+        "pr12-ui-probe": {
+          "verdict": "CHANGES",
+          "blocking": 8,
+          "matched": 2,
+          "precision": 0.25,
+          "recall": 0.18181818181818182,
+          "found": [
+            "screenshot-name-collision",
+            "dep-guard-ignores-uncommitted"
+          ],
+          "foundInLane": [
+            "dep-guard-ignores-uncommitted",
+            "screenshot-name-collision"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "screenshot-name-collision"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [
+                "dep-guard-ignores-uncommitted"
+              ],
+              "controls": []
+            },
+            {
+              "n": 7,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 8,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 6,
+          "ok": true,
+          "error": null,
+          "cost": 1.8133,
+          "tokens": 1528408,
+          "seconds": 305,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr12-ui-probe, round 1\n\n## Summary\nMost of the change is solid. The gates, numbered diff, worktree links, runner retries and the probe's pure helpers are well built and tested. But `npm test` fails on this commit because the benchmark fixture was never committed. Several probe paths also misclassify findings: a base visit that failed to load, multi-element focus traps, screenshot matching by substring, and a server that isn't awaited before the base server starts. The probe's orchestration (AC2, AC3, AC5, AC6) has no automated test.\n\n## Blocking\n1. **`npm test` fails: the benchmark fixture `test/evals/ui/` isn't in the commit** — `test/evals.test.js:11`, `test/evals/run.mjs:24`, `test/evals/run.mjs:188`\n   Problem: `evals.test.js` reads `test/evals/ui/defects.json` at load time (line 11), and `ui/change/*` in its first test. `git ls-tree -r 33fe7eaa test/evals` shows only `run.mjs` and `score.mjs`. Running `node --test test/evals.test.js` on this commit fails with `ENOENT … test/evals/ui/defects.json`. round.md ran no checks (none configured), so build.md's \"94 tests pass\" wasn't checked. It probably reflects files the builder had locally. The spec's \"seeded-defect reviewer benchmark\" is therefore missing its fixture: `base/`, `change/`, `job/` and `defects.json`, which README.md:417-432 and SPEC.md:591 describe.\n   Required change: commit the fixture: `test/evals/ui/{base,change,job}/…` and `defects.json`, with `base/package.json` and its lock file, but not `node_modules`. Then confirm that `npm test` passes from a clean clone.\n\n2. **A base visit that failed to load still counts as a comparison, so its failures block as \"new\"** — `template/.claude/skills/factory/probe.mjs:122-131`\n   Problem: `compareWithBase` takes `was` as the base visit with the same key and marks every head `fail` finding missing from it as `new`. When the base visit threw (a `goto` timeout, or an error in the evaluate, axe or screenshot steps in `visit()` at lines 494-509), its findings are just `[load-failed]`. So each head axe or overflow failure is marked `new` and blocks the round, even though nothing was measured on the base. AC2 says a problem that can't be compared is reported as unverified.\n   Required change: if the matching base visit has a `load-failed` finding, or is missing, mark that visit's head failures `unverified`, not `new`. Note that a 404 on a new route still compares correctly as new. Add a `compareWithBase` test with a base visit whose only finding is `load-failed`.\n\n3. **A focus trap across more than one element isn't detected** — `template/.claude/skills/factory/probe.mjs:459-469`\n   Problem: `tabWalk` reports a trap only when the same element gets focus twice in a row (line 463). It ends as \"complete\" when it gets back to `stops[0]`. Take a widget that cycles focus among its own controls, for example stops A, B, C, D, C, D, …. The walk records C and D again and again until `ui.tabStops`, then reports \"Stopped after 30 stops\". It raises no `focus-trap` finding, and the Tab order in probe.md is padded with repeats. AC6 asks for traps to be recorded.\n   Required change: keep the ids already seen. Reaching any earlier stop other than `stops[0]` is a trap (report that element's selector), and the walk stops there. Cover this with a test (see #7).\n\n4. **check-review accepts one screenshot name as proof for another; screenshot names can collide** — `template/.claude/skills/factory/probe.mjs:332`, `template/.claude/skills/factory/probe.mjs:451`, `template/.claude/skills/factory/probe.mjs:504`\n   Problem: `viewed.includes(shot.split('/').pop())` is a substring test. A review that lists only `admin-orders-default-1280-light.png` also satisfies `orders-default-1280-light.png` (routes `/admin/orders` and `/orders`), so it can skip a screenshot it owes and still pass. AC4 says check-review checks the screenshots it owes. Separately, `slug()` maps different paths to the same file (`/a/b` and `/a-b` → `a-b`, `/` and `/root` → `root`). With the same state, width and theme, the second visit overwrites the first one's PNG and both rows cite the same file.\n   Required change: match whole file names only. Either extract the `*.png` names from Coverage (as `score.mjs` `citations()` does) and compare as a set, or require a non-word character before the name. Make screenshot names unique per visit, for example with a short hash of the visit key, as the contract's example `billing-default-320-light-3f9a1c2e.png` already suggests. Add a reviewGaps test where one listed name ends with another.\n\n5. **The head server isn't awaited before the base server starts, so the base run can measure the head app** — `template/.claude/skills/factory/probe.mjs:534-537`, `template/.claude/skills/factory/probe.mjs:574`, `template/.claude/skills/factory/probe.mjs:696-712`\n   Problem: `stopServer` sends SIGTERM and returns at once. `withServer` doesn't wait for the process group to exit, and `runProbe` starts the base server right away. When `ui.url` has a fixed port (nothing requires `{port}`, and many dev servers ignore `PORT`), the base readiness `fetch` can be answered by the head server while it's still shutting down. The base server then hits EADDRINUSE. The \"base\" measurements are then the head's, so every new failure becomes `pre-existing` and nothing blocks.\n   Required change: in `withServer`'s `finally`, wait for the child's `exit`, with a timeout and then SIGKILL to the group, before returning. Alternatively, reject a `ui.url` without `{port}` when a base run is needed, or report the comparison as unverified in that case.\n\n6. **With no `worktree.setup`, the builder's local run misses uncommitted dependency changes (AC5)** — `template/.claude/skills/factory/probe.mjs:592`\n   Problem: `git diff --name-only mergeBase HEAD` sees only committed changes. The builder is told to run the probe before committing (factory-builder.md:62-65). In that run, a `package.json` or lock-file change in the working tree isn't detected. The base then borrows the worktree's `node_modules` (lines 609-611), which is exactly the case AC5 rules out.\n   Required change: diff the merge base against the working tree (`git diff --name-only <mergeBase>`) and include untracked files, as `changeIn()` in round.mjs already does.\n\n7. **No test for the probe's orchestration: AC2's base re-run, AC3, AC5, AC6's walk and AC4's screenshots** — `template/.claude/skills/factory/probe.mjs:590-619`, `template/.claude/skills/factory/probe.mjs:634-735`, `template/.claude/skills/factory/probe.mjs:453-471`\n   Problem: probe.test.js tests only the pure helpers, and round.test.js replaces the probe with a stub. None of these paths has a test that would fail if it were wrong:\n   - only failing visits are re-run on the base;\n   - a base that can't be prepared or won't start gives `unverified`;\n   - the app-start finding when the head doesn't serve and the base does (AC3);\n   - \"error\" when neither serves;\n   - the dependency-file refusal (AC5);\n   - the trap and \"complete\" logic in `tabWalk` (AC6);\n   - one screenshot per visit (AC4).\n   build.md lists AC2, AC3 and AC5 as \"manual run\". It cites probe.test.js for `tabWalk`, but that file only feeds hand-made `tab` data to `findingsOf`.\n   Required change: add tests that drive `runProbe`. `load()` resolves `playwright` and `axe-core` from the worktree (lines 667-670), so a temp repo can carry small fake packages under `node_modules/`: a `chromium.launch()` whose pages return canned `evaluate` results by function, and Tab focus sequences. A one-line `node -e` HTTP server can serve as `ui.serve`, with a branch that breaks it. Alternatively, inject the browser into `runProbe`, as `prepareRound` takes `probe`. Cover at least: new vs pre-existing vs unverified (base not startable), app-start blocking, the dependency-file refusal, a multi-element trap, and a screenshot path on each visit.\n\n8. **`addedLines` can take a content line for a file header** — `template/.claude/skills/factory/round.mjs:165`\n   Problem: a `+++ ` line counts as a header whenever the line before it starts with `--- `, even inside a hunk. In `-U0` output a removed `-- comment` line (SQL, Lua, Haskell) shows as `--- comment`. If the next added line is `++ …`, `file` becomes null and every later added line in that file is dropped. A `scope: \"lines\"` gate then treats problems on those lines as older and passes. `numberDiff` avoids this by resetting at `diff --git` and checking `n === null` (lines 197-199); `addedLines` doesn't.\n   Required change: use the same rule as `numberDiff`. Reset at `diff --git` and accept `+++ ` as a header only before the file's first `@@`. Add a test with `--- x` followed by `+++ y` inside a hunk.\n\n## Coverage\n- Read: template/.claude/skills/factory/probe.mjs, template/.claude/skills/factory/round.mjs, template/.claude/skills/factory/worktree.mjs, template/.claude/skills/factory/runner.mjs, template/factory/config.json, package.json, src/util.js, test/fixtures/fake-claude.mjs, test/probe.test.js, test/round.test.js, test/runner.test.js, test/worktree.test.js, test/evals.test.js, test/evals/run.mjs, test/evals/score.mjs, template/.claude/skills/factory/reviewer-contract.md, template/.claude/skills/factory/SKILL.md, template/.claude/agents/factory-approver.md, template/.claude/agents/factory-builder.md, template/.claude/agents/factory-spec-writer.md, template/.claude/agents/factory-review-ui.md, template/.claude/agents/factory-review-ux.md\n- Read (added lines skimmed for claims about behaviour): README.md, SPEC.md\n- Not read: None.\n\n## Suggestions (non-blocking)\n- Possible fingerprint instability: an `overflow` finding's fingerprint includes the first five offender selectors (`probe.mjs:116`, `probe.mjs:167`). Those selectors use `:nth-of-type`, so an unrelated sibling the change adds can make a pre-existing overflow look new. Consider fingerprinting overflow by kind alone per visit, or by the outermost offender.\n- Duplicated Code: `section()` is defined twice, at `probe.mjs:294` and `test/evals/score.mjs:15`; export it from probe.mjs. The `diff` and `grep` branches of round.mjs `main()` (lines 539-545 and 553-559) repeat the same try/catch/exit block, which could share one helper.\n- `numberDiff` prints nothing for a pure rename or mode change, because it needs `---`/`+++` lines (`round.mjs:199`). Printing `=== new (renamed from old)` would keep such files visible to reviewers.\n- `findingsOf` makes `focus-trap` a warning (`probe.mjs:190`), but factory-review-ux.md:61 calls a trap blocking. That's consistent, since the reviewer decides, but a trap found on the head and absent on the base could reasonably be a `fail`.\n",
+          "repo": null
+        }
+      }
+    },
+    {
+      "cases": {
+        "pr8-headless-runner": {
+          "verdict": "CHANGES",
+          "blocking": 7,
+          "matched": 4,
+          "precision": 0.5714285714285714,
+          "recall": 0.3333333333333333,
+          "found": [
+            "queued-check-starts-after-abort",
+            "approve-outside-job-lock",
+            "stale-lock-takeover-race",
+            "job-flag-without-value"
+          ],
+          "foundInLane": [
+            "stale-lock-takeover-race",
+            "job-flag-without-value",
+            "approve-outside-job-lock",
+            "queued-check-starts-after-abort"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "queued-check-starts-after-abort"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [
+                "approve-outside-job-lock"
+              ],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [
+                "stale-lock-takeover-race"
+              ],
+              "controls": []
+            },
+            {
+              "n": 7,
+              "defects": [
+                "job-flag-without-value"
+              ],
+              "controls": []
+            }
+          ],
+          "unmatched": 3,
+          "ok": true,
+          "error": null,
+          "cost": 1.2294,
+          "tokens": 867320,
+          "seconds": 200,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr8-headless-runner, round 1\n\n## Summary\nThe runner, board locks and harness are well built, and the main path (AC1, 2, 6, 8) is implemented and tested end to end. I found seven blocking problems: Ctrl+C can still start checks that nothing ever kills, the runner can take over a job a session is already driving, `approve` and `rework` don't take the job lock, a stale-lock takeover can break a lock someone still holds, `--job` with no value runs every job, and AC5 and AC7 have no tests that would catch a regression.\n\n## Blocking\n1. **Ctrl+C starts queued checks that are never killed** — `template/.claude/skills/factory/runner.mjs:309`, `:646-658`, `:662-668`\n   Problem: Trace with `parallel 2` and `maxParallelChecks 1`. Job A is running `round.mjs` and job B is waiting in `limiter`. Ctrl+C aborts the signal, and A's process group is killed. A's `finally` then hands its slot to B (`:653-654`), so B runs `runNode(...)`. That spawns a new detached `round.mjs` and calls `signal.addEventListener('abort', kill)` on a signal that is already aborted. That listener never fires (checked: `addEventListener` on an aborted `AbortSignal` does not call the handler). So the checks run to the end, possibly for minutes. `runAll` waits for them at `:638`. A second Ctrl+C calls `process.exit(130)` (`:710`) and leaves the detached group running. This breaks AC5. The harness's `run()` (`harness/claude-code.mjs:96-103`) has the same gap if it is ever called after the abort.\n   Required change: Don't start work once the signal is aborted. Have waiting `limiter` callers reject on abort, and have `runNode` and the harness's `run` resolve without spawning (or kill right after spawning) when `signal.aborted` is already true. Add a test that sends SIGTERM while one job's slow check runs and another job waits, then asserts the runner exits promptly and no second check process starts.\n\n2. **AC7 has no test** — `template/.claude/skills/factory/runner.mjs:646-658, 733`; `test/runner.test.js` (none)\n   Problem: Nothing tests `runner.maxParallelChecks`. build.md's evidence for AC7 is \"manual\". If `limiter` let every caller through, every test would still pass.\n   Required change: Add an end-to-end test with `--parallel 2` and `maxParallelChecks: 1`. Use a check command that fails if another check is running, for example `mkdir` of a shared marker, a short sleep, then `rmdir`. Also cover the slot handover in `limiter` (several waiters, each runs exactly once).\n\n3. **No test that stopping the runner kills its agents and checks (AC5)** — `test/runner.test.js:211-229`\n   Problem: The \"killed runner\" test checks the exit code (130) and that the job resumes. It would still pass if `kill` in `harness/claude-code.mjs:102` or `runner.mjs:667` did nothing: the hung fake builder would just keep running in the background, and the second run doesn't wait on it.\n   Required change: Have `fake-claude.mjs` write its pid when it hangs. After the runner exits, assert that pid is gone (`process.kill(pid, 0)` throws `ESRCH`). Do the same for a check process, which can be part of the test for #1.\n\n4. **The runner takes over jobs a session is driving** — `template/.claude/skills/factory/runner.mjs:628`, `:586-591`; `template/.claude/skills/factory/SKILL.md:114-121`\n   Problem: `runAll` adopts any job in an active stage that the board shows. The only guard is the `job-<id>` lock, and a Claude Code session never takes that lock. If a session is running a job itself (no runner live, `headless: false`) and the user starts `run` in a terminal, the runner adopts that job. It then runs a second spec-writer or builder on the same worktree while the session's agents are still working. This breaks AC3 (\"one process drives a job at a time\") and the spec's goal that a session and a runner can work side by side. SPEC.md:307 says `job-<id>` stops double driving, but that only holds between runner processes.\n   Required change: Record who drives a job. For example, the session sets `driver: \"session\"` via `board.mjs update` when it starts or resumes a job, and clears it when the job leaves the active stages or is handed to the runner. `runAll` then skips session-driven jobs (and logs that it did). Document this in SKILL.md and add a test: an active job marked as session-driven is not adopted by `run`.\n\n5. **`approve` and `rework` check the stage without holding the job lock** — `template/.claude/skills/factory/runner.mjs:752-768`\n   Problem: Both commands read `job.stage === 'needs-human'` and then act, without the `job-<id>` lock. That is a read-compare-write race. If `approve` and `rework` run at once on the same job (two terminals, or the session's hand-off plus a terminal), both pass the check. `ship` then merges the branch while the rework builder is committing to it, and the rework drives a job that has already merged. Two reworks at once both write `human.md`, and the last one wins.\n   Required change: Take `lockPath(root, 'job-<id>')` with `tryLock` before reading the stage, and refuse if it's held. Re-read the job while holding the lock, and keep the lock through `ship` or the rework drive. `drive` can then accept a lock the caller already holds. Add a test that `approve` is refused while that job's lock is held by a live pid.\n\n6. **Taking over a stale lock can break a lock someone still holds** — `template/.claude/skills/factory/board.mjs:66-79`\n   Problem: B reads stale pid X (`:67`) and then stalls. Meanwhile C does a full takeover: it moves X's lock aside, deletes it and takes the lock. B then resumes and renames C's live lock aside (`:71`). From then until B renames it back (`:75`), the path is empty, so a third process E can take the lock while C still holds it. If E gets there first, B's rename back fails silently and C's lock is left as an orphan folder. C and E then both believe they hold the board, ids or ship lock. The concurrency test at `test/board.test.js:90-105` never starts from a stale lock, so it doesn't cover this.\n   Required change: Make the check-and-remove step atomic against other takeovers. For example, guard it with a second lock made by `mkdirSync`, such as `<path>.takeover`, with a short age-based expiry, and re-read the pid while holding that guard before moving the stale lock aside. Then only a lock whose holder really exited can be removed. Add a test where several processes race to take over the same stale lock and check that only one ever holds it.\n\n7. **`run --job` with no id runs every job** — `template/.claude/skills/factory/runner.mjs:691`, `:696`, `:743`\n   Problem: When `--job` is the last argument, `value()` returns `undefined`, so `opts.job` is `undefined` and `main` falls through to `runAll`. It then claims and runs the whole backlog, which is the opposite of what the user asked for. `--parallel` with no value is caught only because `Number(undefined)` is `NaN`.\n   Required change: Make `value()` throw `--<name> needs a value` when the next argument is missing or starts with `-`. Add a test for `run --job` with no id.\n\n## Coverage\n- Read: README.md, SPEC.md, bin/cli.js, package.json, src/run.js, src/util.js, template/.claude/skills/factory/SKILL.md, template/.claude/skills/factory/board.mjs, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs, template/.claude/skills/factory/usage.mjs, template/factory/config.json, test/board.test.js, test/cli.test.js, test/fixtures/fake-claude.mjs, test/runner.test.js (also read the unchanged round.mjs `prepareRound` and `main` for the contract the runner depends on)\n- Not read: None.\n\n## Suggestions (non-blocking)\n- `claimNext` (`runner.mjs:529-531`) ticks the backlog item before `createJob` writes `request.md` and the board entry. A SIGKILL between the two leaves an item marked `- [x] … (job <id>)` with no job on the board. Writing the board entry inside the backlog lock, before the tick, would close that gap.\n- Possible Duplicated Code: `runNode` (`runner.mjs:662-677`) and the harness's `run` (`claude-code.mjs:96-114`) both spawn a detached process and kill its group on abort. One shared helper would also mean the fix for #1 is made once. `board.mjs` also re-implements `readJson` and `writeJsonAtomic`, which `usage.mjs:128-137` already has.\n- `config.runner.parallel` of 0 or a non-integer makes `run` exit at once with \"nothing left to run\" (`runner.mjs:627`). Validate it the way `--parallel` is validated.\n- `shipPr` removes the worktree outside the `ship` lock (`runner.mjs:435`), although SPEC.md:312 says worktree changes in the main checkout happen under it.\n",
+          "repo": null
+        },
+        "pr9-runner-progress": {
+          "verdict": "CHANGES",
+          "blocking": 4,
+          "matched": 1,
+          "precision": 0.25,
+          "recall": 0.5,
+          "found": [
+            "stale-activity-never-expires"
+          ],
+          "foundInLane": [
+            "stale-activity-never-expires"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "stale-activity-never-expires"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 3,
+          "ok": true,
+          "error": null,
+          "cost": 0.802,
+          "tokens": 573820,
+          "seconds": 145,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr9-runner-progress, round 1\n\n## Summary\nThe streaming harness, the per-tool-call log lines, the activity file and the dashboard rows are all built and work on the happy path. But AC2 (the \"still working\" line) and most of AC4 have no tests, despite build.md citing them. The finish line is skipped for agents that fail. The dashboard can keep showing a crashed runner's step well past 60s. The duration formatter prints \"60m\" and \"1h 60m\".\n\n## Blocking\n1. **AC2 and AC4 have no tests; build.md's evidence for them doesn't exist** — `test/runner.test.js:218-222`, `test/runner.test.js:230-234`, `template/.claude/skills/factory/runner.mjs:29-30,737-746`\n   Problem: build.md says AC2 is covered in runner.test.js, but no test triggers or checks a `still working (…; last: …)` line. The quiet/heartbeat logic in `heartbeat()` never runs in the suite, because `QUIET_MS`/`HEARTBEAT_MS` are fixed at 60s/15s and the fake agents finish in milliseconds. For AC4, nothing checks that the file is *rewritten* while a step runs (a fresh `updatedAt` after a heartbeat). The killed-runner test also never checks that `factory/activity/001-add-gamma.json` is removed after the SIGTERM stop (`:235-237`), and that stop path is exactly the \"stops driving the job\" case. If `heartbeat()` were deleted, or if `drive()`'s `finally` stopped removing the file on abort, every test would still pass.\n   Required change: make the intervals overridable (a `ctx`/config value, or env read in `main`, defaulting to 15s/60s), or export `heartbeat`/`begin` and unit-test them with a fake `ctx` whose step has an old `quietFrom`. Then add tests that (a) a quiet step logs `<name> still working (<duration>; last: <call>)` once per quiet period, (b) the activity file's `updatedAt` advances while a hung step runs, and (c) after the SIGTERM in \"a killed runner resumes jobs from their files\", the activity file is gone.\n\n2. **An agent that fails, or exits non-zero after writing its file, never gets a finish line** — `template/.claude/skills/factory/runner.mjs:237-240`\n   Problem: AC3 says *each* agent ends with how long it took and its one-line reply. The finish line is only logged when `result.ok`. If an agent exits with an error and gets retried or sent to needs-human, line 249 logs the error with no duration. If an agent reports `is_error`/non-zero but still wrote its file, `done()` returns true at :248 and nothing at all marks its end. Either way the log shows a step that started and never says how long it ran.\n   Required change: log a finish line with `elapsed(step.startedAt)` whenever the agent wasn't aborted, using the reply when there is one and `result.error` when it failed (e.g. `builder failed after 4m: <error>`). Add a test where the fake agent exits with `is_error: true`.\n\n3. **A crashed runner's step stays on the card well past 60s, and stays indefinitely while a drawer is open** — `template/factory/dashboard.html:595-603`, `template/factory/dashboard.html:356-360`, `template/factory/dashboard.html:899`\n   Problem: staleness is only checked inside `activityOf()` at render time. After a crash the file stops changing, so `pollActivity()` sees identical text and returns false, and nothing re-renders. The only other trigger is the 30s `setInterval` at :899, which skips rendering while `openJob` is set, and `closeDrawer()` doesn't render either. So the stale row shows for up to ~90s with no drawer open, and for as long as a drawer stays open. AC5 says nothing shows for a file more than 60s old.\n   Required change: drop stale entries inside `pollActivity()` before building `next`/`activityText` (keep only files whose `updatedAt` is within `ACTIVITY_STALE_MS`). Crossing the threshold then counts as a change and re-renders within one `POLL_MS`, drawer or not. `activityOf()` then only needs the stage check.\n\n4. **Durations near an hour boundary print \"60m\" and \"1h 60m\"** — `template/.claude/skills/factory/runner.mjs:691-694`, `template/factory/dashboard.html:349-353`\n   Problem: minutes are computed with `Math.round`. From 3570s to 3599s, `Math.round(s / 60)` gives `60m`. At 7170s, `Math.round((s % 3600) / 60)` is 60, giving `1h 60m`. This affects the terminal finish/still-working lines and the card timer.\n   Required change: use `Math.floor` for the minutes in the hour branch, and round the sub-hour minutes so they can't reach 60 (or floor them too) in both copies. Add a small unit test for the runner's formatter (exporting it is fine).\n\n## Coverage\n- Read: README.md, SPEC.md, src/util.js, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs, template/factory/dashboard.html, test/fixtures/fake-claude.mjs, test/runner.test.js\n- Not read: None.\n\n## Suggestions (non-blocking)\n- For checks, `begin(ctx, id, 'checks', null, names.join(', '))` puts the check names in `last`, so the quiet line reads `checks still working (2m; last: test)`. It works, but \"last\" there isn't a tool call. A separate `detail` field, or a `running test` wording, would read better.\n- `run()` concatenates raw `Buffer` chunks (`pending + d`, `claude-code.mjs:124`), so a multi-byte character split across chunks turns into U+FFFD in tool-call lines and the reply. `child.stdout.setEncoding('utf8')` fixes it. The old code had the same issue.\n- `short()` (`runner.mjs:223-226`) only strips paths with a trailing `/`, so `cd <worktree> && npm test` shows `.factory-worktrees/<id>`. That's fine, just worth knowing.\n- `ctx.heartbeat = clearInterval(ctx.heartbeat)` (`runner.mjs:730`) relies on `clearInterval` returning `undefined`. Writing `clearInterval(…); ctx.heartbeat = null;` would be clearer.\n- The dashboard has no test harness, so AC5's rendering is checked only by reading the code (build.md says \"manual (not viewed in a browser)\"). Pulling `activityOf`/`since` into something testable would close that gap later.\n",
+          "repo": null
+        },
+        "pr12-ui-probe": {
+          "verdict": "CHANGES",
+          "blocking": 8,
+          "matched": 2,
+          "precision": 0.25,
+          "recall": 0.18181818181818182,
+          "found": [
+            "app-start-no-finding",
+            "screenshot-name-collision"
+          ],
+          "foundInLane": [
+            "app-start-no-finding",
+            "screenshot-name-collision"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [
+                "app-start-no-finding"
+              ],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [
+                "screenshot-name-collision"
+              ],
+              "controls": []
+            },
+            {
+              "n": 7,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 8,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 6,
+          "ok": true,
+          "error": null,
+          "cost": 1.5858,
+          "tokens": 1475133,
+          "seconds": 238,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr12-ui-probe, round 1\n\n## Summary\nThe pure parts (Screens parsing, visit planning, findings, check-review, line-scoped gates, numbered diff, worktree links) are solid and well tested. But the commit leaves out the eval fixture, so `npm test` fails. Several probe paths (startup failure with no base, base load failures, multi-stop focus traps, focus visibility) give wrong results, and the browser-driven half of probe.mjs that AC2–AC6 depend on has no tests.\n\n## Blocking\n1. **The benchmark fixture `test/evals/ui/` isn't in the commit, so `npm test` fails** — `test/evals.test.js:11`, `test/evals/run.mjs:24`\n   Problem: `git ls-files test/evals` lists only `run.mjs` and `score.mjs`. `evals.test.js` reads `test/evals/ui/defects.json` at module load, which fails with ENOENT. I confirmed it with `node --test test/evals.test.js` (1 failed). `run.mjs` also needs `ui/base`, `ui/change`, `ui/job/*` and `ui/defects.json`, so `npm run eval:reviewers` can't run either. round.md shows no checks configured, which is why this got through. build.md's \"94 tests pass\" isn't true for this commit.\n   Required change: commit the fixture (`test/evals/ui/{base,change,job}/…`, `defects.json`, and the base's `package.json`/lock file, without `node_modules`) and confirm `npm test` passes.\n\n2. **A broken startup that can't be compared with the base is dropped as \"Not run\" instead of reported unverified** — `template/.claude/skills/factory/probe.mjs:719-720`, `template/.claude/skills/factory/round.mjs:490`\n   Problem: when the head doesn't start and the base can't be checked or started, `runProbe` returns `skip(..., 'error')`. The most common case is a change that touches `package.json` with no `worktree.setup` (`baseCheckout`, line 593). round.mjs only blocks or numbers items when `status === 'ran'`, so the round goes ahead and round.md says \"Not run: … Review from the diff\". check-review owes nothing (`reviewGaps` returns `[]` unless `ran`). AC2 says a problem that can't be compared is reported as unverified, and AC5 says the same for dependency changes. Here the most serious problem of all (the app won't start) gets neither treatment. Only the case where the base's own startup also fails is really pre-existing.\n   Required change: when the head fails to start and `base.error` is set, or the base was never tried, record a ran probe with an `app-start` finding whose `origin` is `unverified`, so it shows up as a `U` item the reviewers have to answer. Keep `error` or pre-existing only for the case where the base's startup also failed. Add a test.\n\n3. **A base visit that failed to load makes every head failure count as \"new\"** — `template/.claude/skills/factory/probe.mjs:122-131`\n   Problem: `compareWithBase` only checks whether the base visit has the same fingerprint. If the base visit timed out or threw (its findings are just `load-failed`), every axe, overflow or page-error failure on the head is marked `new` and blocks the round, even though nothing was compared. AC2 says that case is unverified.\n   Required change: treat a base visit that is missing or has a `load-failed` finding as \"no comparison\". Mark the head's failures there `unverified`, except a head `load-failed`, which is `pre-existing` when the base has it too. Add a case to the `compareWithBase` test.\n\n4. **Focus traps are only detected when one element keeps focus** — `template/.claude/skills/factory/probe.mjs:459-469`\n   Problem: `tabWalk` reports a trap only when two Tab presses in a row land on the same element. A cycle among two or more elements that doesn't include the first stop (A→B→A→B, the usual trap shape, e.g. a widget or dialog that loops focus) is recorded as repeated stops up to `ui.tabStops` and rendered as \"Stopped after N stops\". No `focus-trap` finding is raised, so AC6's \"traps\" isn't met for that case.\n   Required change: keep the ids already seen. A stop that repeats an earlier stop other than the first (wrapping to the first is \"complete\") is a trap. Record its selector (or the cycle) in `trap` and stop the walk there.\n\n5. **Autofocused elements are falsely reported as having no visible focus** — `template/.claude/skills/factory/probe.mjs:420-424`\n   Problem: `recordRest` saves each element's \"at rest\" style first and only then blurs `document.activeElement`. An element that has focus on load (`autofocus` search or login fields) gets its focused style saved as \"rest\". When the walk tabs to it, `readFocus` sees no difference and reports `visible: false`, giving a wrong `focus-not-visible` warning that the reviewers then have to answer.\n   Required change: blur the active element before recording the rest styles.\n\n6. **Screenshot names can collide, and check-review matches them as substrings** — `template/.claude/skills/factory/probe.mjs:451`, `:504`, `:332`\n   Problem: `slug` merges every run of non-alphanumerics and lowercases. Different routes such as `/a/b`, `/a-b` and `/A-b`, or `/orders?state=x` and `/orders/state/x`, in the same state give the same file name. The later visit overwrites the earlier screenshot, and both visits in probe.json point to one image. Also, `reviewGaps` accepts a screenshot when its file name appears anywhere in Coverage (`viewed.includes(...)`). So listing `ba-default-320-light.png` also counts as `a-default-320-light.png`, and AC4's check passes for a screenshot the reviewer never listed.\n   Required change: make names unique per visit, e.g. append a short hash of `v.key` (the form the reviewer contract's example `billing-default-320-light-3f9a1c2e.png` suggests). Match each file name as a whole token in Coverage, not a substring. Add a test for both.\n\n7. **`addedLines` can mistake a hunk's content for a file header** — `template/.claude/skills/factory/round.mjs:164-172`\n   Problem: in `-U0` output a hunk's removed lines come right before its added lines. If a removed line starts with `-- ` (an SQL or Lua comment, a Markdown signature) and the next added line starts with `++ `, the pair reads as `--- …` / `+++ …`. `file` becomes `null`, and every later added line in that file is dropped. A `scope: \"lines\"` gate then counts problems on those new lines as \"older\" and passes, which breaks AC7. `numberDiff` guards against this (it resets on `diff --git` and checks `n === null`), but `addedLines` doesn't.\n   Required change: read a header only between a `diff --git` line and the first `@@` (as `numberDiff` does). Extend the `addedLines` test with a `--- x` / `+++ y` pair inside a hunk.\n\n8. **No tests for the browser-driven probe, which AC2–AC6 depend on** — `template/.claude/skills/factory/probe.mjs:453-520`, `:590-619`, `:634-735`; `test/probe.test.js`\n   Problem: `runProbe`, `baseCheckout`, `visit` and `tabWalk` have no tests. build.md's own table lists AC2, AC3 and AC5 as \"manual run\". It cites probe.test.js for AC4 and AC6, but that file only feeds hand-made `tab` data to `findingsOf` and never runs `tabWalk` or `visit`. None of these would fail a test if broken: the app-start finding (AC3), the base re-run and its scoping to failing visits (AC2), the dependency-file refusal with no setup (AC5), one screenshot per visit (AC4), the Tab walk (AC6), base worktree cleanup, and the `skipped` paths. Findings 2–5 are bugs in exactly this code.\n   Required change: add tests that drive `runProbe` in a temp repo. `load()` resolves `playwright` and `axe-core` from the worktree through `createRequire`, so stub modules in the temp repo's `node_modules` (a fake `chromium.launch()` that returns scripted pages, and an `axe-core` with `source`/`version`), plus a tiny Node `ui.serve`, are enough. At minimum cover: head fails to start and base starts → `app-start` new; `package.json` changed, no setup → unverified; failure on head and base → pre-existing; failure only on head → new; one screenshot per visit; a Tab walk with a trap. Alternatively, move the decision logic out of `runProbe` into pure functions and test those, and also test `tabWalk` against a stub page.\n\n## Coverage\n- Read: README.md, SPEC.md (skimmed: prose describing the same design), package.json, src/util.js, template/.claude/agents/factory-approver.md, template/.claude/agents/factory-builder.md, template/.claude/agents/factory-review-ui.md, template/.claude/agents/factory-review-ux.md (probe and screenshot sections, checked against check-review), template/.claude/agents/factory-spec-writer.md, template/.claude/skills/factory/SKILL.md, template/.claude/skills/factory/probe.mjs, template/.claude/skills/factory/reviewer-contract.md, template/.claude/skills/factory/round.mjs, template/.claude/skills/factory/runner.mjs, template/.claude/skills/factory/worktree.mjs, template/factory/config.json, test/evals.test.js, test/evals/run.mjs, test/evals/score.mjs, test/fixtures/fake-claude.mjs, test/probe.test.js, test/round.test.js, test/runner.test.js, test/worktree.test.js\n- Not read: None.\n\n## Suggestions (non-blocking)\n- `numberDiff` prints nothing for a pure rename, a mode-only change or a new empty file, because those have no `---`/`+++` lines. A `=== old → new (renamed)` line would keep the numbered diff's file list complete.\n- When the builder runs the probe before committing (no round), `baseCheckout` only diffs `mergeBase..HEAD` for dependency files. An uncommitted `package.json` change isn't noticed, and the base borrows the worktree's new `node_modules`. Including the working tree in that diff would make the local run match the round.\n- `probe.mjs:697` works out the merge base before it knows a base run is needed. Moving it into the base path avoids a git call, and a possible throw, on clean runs.\n- build.md's evidence table claims tests for AC4 and AC6, and \"94 tests pass\", that don't exist or don't hold. Correct it after the fixes.\n",
+          "repo": null
+        }
+      }
+    },
+    {
+      "cases": {
+        "pr8-headless-runner": {
+          "verdict": "CHANGES",
+          "blocking": 6,
+          "matched": 3,
+          "precision": 0.5,
+          "recall": 0.25,
+          "found": [
+            "runner-probe-misses-job-locks",
+            "queued-check-starts-after-abort",
+            "job-flag-without-value"
+          ],
+          "foundInLane": [
+            "runner-probe-misses-job-locks",
+            "job-flag-without-value",
+            "queued-check-starts-after-abort"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [
+                "runner-probe-misses-job-locks"
+              ],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "queued-check-starts-after-abort"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "job-flag-without-value"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 3,
+          "ok": true,
+          "error": null,
+          "cost": 1.2724,
+          "tokens": 943707,
+          "seconds": 256,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr8-headless-runner, round 1\n\n## Summary\nThe runner, board locks and harness are well put together, and the end-to-end tests with a fake `claude` cover the main path, resume and approve/rework. But a few traced cases go wrong: a rework can skip the builder, a session's job can be driven twice, Ctrl+C can start checks that nothing kills, and `run --job` with no id runs everything. AC3, AC5 and AC7 are also only partly tested.\n\n## Blocking\n1. **Rework skips the builder when build.md already answers round N** — `template/.claude/skills/factory/runner.mjs:112`, `:758-767`\n   Problem: `rework` writes `round-N/human.md` and sets stage `build`. `nextAction` only runs the rework builder when `f.human && !f.responded`. If build.md already has `## Round N response`, the job goes straight to `{ type: 'round', n: n + 1 }` and no builder ever reads the human's note. This really happens: the `review` builder step goes to needs-human with \"the builder didn't commit and answer round n\" when the builder appended the response but made no commit (`:276`, `g.head !== before && g.responded`). It also happens when a second rework is sent for the same round. SKILL.md Rework step 4 always spawns the builder.\n   Required change: record a pending rework the files can't fake. For example, set `job.runner.rework = n` on the board in `rework` and clear it once the rework builder's `done()` holds, or compare human.md against the response that follows it. `nextAction` should return `build/rework` while that marker is set. Add a `nextAction` test for `human: true, responded: true` with a pending rework.\n\n2. **The runner adopts and drives a job a Claude Code session is already running** — `template/.claude/skills/factory/runner.mjs:628`, `:587-591`; `template/.claude/skills/factory/SKILL.md:55-61`, `:114-121`\n   Problem: `drive()` uses the `job-<id>` lock to keep one driver per job, but the session loop in SKILL.md never takes that lock. SKILL.md only hands off when a runner is *already* live. So if a session is mid-job and the user then starts `run`, `runAll` finds the session's active job (`ACTIVE.has(j.stage) && !started.has(j.id)`), gets the free lock, and spawns builders and reviewers on the same worktree as the session. The spec's goal (\"a session and a runner can work in the same repo side by side\") and AC3 (\"one process drives a job at a time\") both fail.\n   Required change: make the session hold the job lock while it drives a job, e.g. `board.mjs lock job-<id>` / `unlock`, with SKILL.md steps to take it before New job step 3, Resume and Rework and to release it when the job leaves the active stages. Alternatively the runner must skip active jobs not claimed through `drive`. The lock is held by pid, and a session's Bash calls are short-lived processes, so a pid-based lock needs a holder that lives as long as the session, or a different liveness rule. Pick a design and test it.\n\n3. **After Ctrl+C, a job waiting for a checks slot starts round.mjs and nothing kills it** — `template/.claude/skills/factory/runner.mjs:646-658`, `:662-668`, `:309`\n   Problem: with `maxParallelChecks: 1` and two jobs at checks, job B waits in `limiter`. On abort, job A's round.mjs is killed, its `finally` hands the slot to B, and B's `fn` calls `runNode`. `runNode` spawns round.mjs and calls `signal.addEventListener('abort', kill)` on a signal that has already aborted, so the listener never fires. The runner then waits for B's whole check suite, which has no time limit. A second Ctrl+C calls `process.exit(130)` and leaves the detached round.mjs group running. AC5 fails.\n   Required change: in `runNode` (and the harness `run()`), check `signal.aborted` before spawning and resolve or throw straight away. Or have the limiter throw for an aborted signal before calling `fn`. Cover it with a test (see #6).\n\n4. **`run --job` with no id runs every job and claims backlog items** — `template/.claude/skills/factory/runner.mjs:691`, `:696`, `:743`\n   Problem: `value()` returns `rest[++i]`, which is `undefined` when `--job` is the last argument. `opts.job` is then falsy, so `main` calls `runAll`, which adopts every active job and starts claiming the backlog. That is the opposite of what the user asked for. `--parallel` with no value is rejected; `--job` isn't.\n   Required change: reject a missing or empty `--job` value (and a value that starts with `-`) with a usage error, and add a cli/runner test for it.\n\n5. **PR-mode ship removes the worktree outside the `ship` lock** — `template/.claude/skills/factory/runner.mjs:435` (vs `ship()` at `:393` and `SPEC.md:312-314`)\n   Problem: the change's own design says worktree changes in the main checkout happen under the `ship` lock. Merge mode follows that (`ctx.git(...)`), but `shipPr` calls `removeWorktree` with no lock. It can then run at the same time as another job's `git worktree add`/`prune` in `perform('worktree')`, which edits the same `.git/worktrees` metadata.\n   Required change: wrap the push/PR/worktree-removal part of `shipPr` (at least `removeWorktree`) in `ctx.git(...)`, as `ship` does.\n\n6. **Missing tests for AC7, the job lock in AC3, and stopping checks in AC5** — `test/runner.test.js`\n   Problem: build.md's evidence for AC7 is \"manual\". Nothing tests that at most `maxParallelChecks` round.mjs processes run at once, and `limiter` has no test. For AC3, only the scheduler lock is tested (`:272-284`); nothing shows that `run --job`/`rework` back off while another process holds `job-<id>`. For AC5, the kill test only stops a hung *agent* (`:211-229`); nothing stops a running check.\n   Required change: add tests that would fail without the code:\n   - (a) two jobs with a slow check (e.g. a `checks.test` that writes a start/end marker and sleeps) under `--parallel 2` and `maxParallelChecks: 1`, asserting the check runs never overlap;\n   - (b) `run --job <id>` while a live pid holds `factory/.locks/job-<id>`, asserting no agent runs;\n   - (c) SIGTERM during a slow check, asserting the runner exits 130 and the check process is gone (this also covers #3).\n\n## Coverage\n- Read: README.md, SPEC.md, bin/cli.js, package.json, src/run.js, src/util.js, template/.claude/skills/factory/SKILL.md (diff plus the Loop, Rules, New job, Review round, Approval, Ship, Next, Issue, GitHub, Resume, Approve and Rework sections), template/.claude/skills/factory/board.mjs, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs, template/.claude/skills/factory/usage.mjs (diff plus recordAgent/refreshJob/rebuildSummary), template/factory/config.json, test/board.test.js, test/cli.test.js, test/fixtures/fake-claude.mjs, test/runner.test.js. For context: round.mjs (summary/round.json shape, how checks are spawned).\n- Not read: None.\n\n## Suggestions (non-blocking)\n- `withLockAsync` (`board.mjs:100-106`) runs `fn` if it gets the lock after an abort. A `signal?.throwIfAborted()` before `fn` would stop a merge or worktree add from starting after Ctrl+C.\n- `approve` (`runner.mjs:755-756`) ships without the `job-<id>` lock and checks the stage before taking `ship`. Two `approve`s at once would both comment on the issue. Taking the job lock around it would match `rework`.\n- `agentStep` calls `rebuildSummary` after every agent, and that re-reads every job's usage files. Rebuilding only in `finishUsage` (or once per step) would avoid the repeated scan as `factory/jobs/` grows.\n- `config.runner.parallel` isn't validated the way `--parallel` is. A `0` makes `run` exit with \"nothing left to run\" without saying why.\n- If the process is SIGKILLed between `claimBacklogItem` and `createJob` (`runner.mjs:529-531`), the item is ticked off and its folder exists but it's not on the board. Writing `request.md` and adding the board entry inside the `idFor` callback would close that window.\n- `prBody` reports a reviewer that never ran as \"skipped\". That's fine, but SKILL.md asks for \"the approver's reason\", and the reason is only in `approval` when the runner ships it itself.\n",
+          "repo": null
+        },
+        "pr9-runner-progress": {
+          "verdict": "CHANGES",
+          "blocking": 4,
+          "matched": 1,
+          "precision": 0.25,
+          "recall": 0.5,
+          "found": [
+            "stale-activity-never-expires"
+          ],
+          "foundInLane": [
+            "stale-activity-never-expires"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "stale-activity-never-expires"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 3,
+          "ok": true,
+          "error": null,
+          "cost": 0.6304,
+          "tokens": 366493,
+          "seconds": 130,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr9-runner-progress, round 1\n\n## Summary\nThe streaming harness, the progress lines and the activity files are mostly sound. Four problems remain: the \"still working\" line (AC2) and the 15s rewrite (AC4) have no tests, and the build.md tests cited for them don't exist; failed agents never print a duration (AC3); the dashboard can keep showing a stale activity file well past 60s (AC5); and the duration format can print \"1h 60m\".\n\n## Blocking\n1. **AC2 and AC4 have no tests, and the tests build.md cites don't exist** — `template/.claude/skills/factory/runner.mjs:29-30`, `:737-746`; `test/runner.test.js:218-222`, `:230-234`\n   Problem: build.md cites runner.test.js \"prints each tool call\" and \"activity file during a run and its cleanup\". Neither test exists, and nothing in `test/` mentions `still working`. Nothing tests the heartbeat: no test checks the `still working (<duration>; last: <call>)` line, and none checks that `updatedAt` moves on while a step runs. `HEARTBEAT_MS` and `QUIET_MS` are fixed constants, so a test would have to wait 60s. The killed-runner test reads the activity file while the builder hangs. It never checks that the SIGTERM path removes the file, which is the \"stops driving the job\" case in AC4. The only removal check is the normal-exit one at :222.\n   Required change: let tests shorten `HEARTBEAT_MS`/`QUIET_MS`, for example through an env var the runner reads, the way `FAKE_*` drives the fixture. Then add tests that fail without the code:\n   - a fake agent stays quiet past the quiet threshold, and the output matches `builder still working \\(\\d+s; last: Read …\\)`;\n   - the activity file's `updatedAt` advances while the step runs;\n   - in the killed-runner test, `factory/activity/001-add-gamma.json` is gone after `first.exit`.\n   Fix build.md's evidence table so it names tests that exist.\n\n2. **A failed agent never prints how long it took** — `template/.claude/skills/factory/runner.mjs:237-240`\n   Problem: AC3 says each agent ends with its duration and one-line reply. The finish line is only logged when `result.ok`. An agent that exits non-zero or reports `is_error` (rate limit, crash, bad model) only gets the error line at :256, with no duration. That is the case where the time matters most. No test covers a failing agent's last line.\n   Required change: log the duration whenever the step wasn't aborted. When `!result.ok`, use the error as the reply, e.g. `builder failed after 4m: <error>`. Add a test where fake-claude exits non-zero and the output has that line.\n\n3. **The dashboard keeps showing an activity file after it goes stale** — `template/factory/dashboard.html:595-599`, `:603`, `:899`\n   Problem: `activityOf()` only checks staleness when the page renders. `pollActivity()` returns `true` only when the fetched JSON changes. When a runner crashes, the file stops changing, so the poll never asks for a render. The card goes blank only on the next 30s \"x ago\" tick (`:899`), which means up to about 90s after the last write. That tick is also skipped while the drawer is open (`if (!openJob)`). AC5 says a file more than 60s old shows nothing.\n   Required change: drop stale entries in `pollActivity()` before comparing, using `Date.parse(a.updatedAt)` against `ACTIVITY_STALE_MS`. The text then changes when a file goes stale and the 2s poll renders it. `activityOf()` can then keep only the stage check.\n\n4. **The duration format can print \"1h 60m\" or \"60m\"** — `template/.claude/skills/factory/runner.mjs:693`; `template/factory/dashboard.html:352`\n   Problem: both formatters round minutes. For 7170s, `Math.round((7170 % 3600) / 60)` is 60, which gives \"1h 60m\". For 3590s, the output is \"60m\" instead of \"1h 0m\". The same bug is in both copies, so both the terminal and the cards show it.\n   Required change: use `Math.floor` for the minutes, in both places.\n\n## Coverage\n- Read: README.md, SPEC.md, src/util.js, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs (`agentStep`, the `checks` action, `drive`, the new activity section, ctx setup, approve/rework callers of `drive`), template/factory/dashboard.html (styles, `since`, `activityOf`, card, `pollActivity`, `poll`, 30s render tick), test/fixtures/fake-claude.mjs, test/runner.test.js\n- Not read: None.\n\n## Suggestions (non-blocking)\n- `drive()`'s `finally` (`runner.mjs:678`) calls `rmSync` before `unlock`, with no try. A non-ENOENT error there, such as EPERM or EBUSY on Windows, would skip the unlock. Unlocking first, or wrapping the rm the way `saveActivity` does, would match \"progress never fails a job\".\n- `ctx.heartbeat = clearInterval(ctx.heartbeat)` (`runner.mjs:730`) leans on `clearInterval` returning `undefined`. Writing `clearInterval(...); ctx.heartbeat = null;` is easier to read.\n- The checks step stores the check names in `last` (`runner.mjs:330`). The quiet line then reads `checks still working (2m; last: test)`, as if \"test\" were a tool call. A separate field, or no `last:` for checks, would be clearer.\n- `short()` strips `<worktree>/` and `<root>/` only with the trailing slash, so `cd /abs/worktree && npm test` stays absolute. You could also replace the bare paths.\n- `pollActivity()` fetches `activity/<id>.json` for every active job every 2s. Jobs run in a session never have one, so the browser console fills with 404s. Fetching only for jobs whose `job.runner` is set, or polling less often, would cut the noise.\n- In the harness, `child.stdout.setEncoding('utf8')` would stop a multibyte character that's split across chunks from being garbled in `pending + d` (`claude-code.mjs:124`).\n- `elapsed` (runner) and `since` (dashboard) are the same formatter. They can't share code across Node and the browser, but a comment pointing each at the other would keep fixes like #4 in step.\n",
+          "repo": null
+        },
+        "pr12-ui-probe": {
+          "verdict": "CHANGES",
+          "blocking": 8,
+          "matched": 2,
+          "precision": 0.25,
+          "recall": 0.18181818181818182,
+          "found": [
+            "app-start-no-finding",
+            "screenshot-name-collision"
+          ],
+          "foundInLane": [
+            "app-start-no-finding",
+            "screenshot-name-collision"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "app-start-no-finding"
+              ],
+              "controls": []
+            },
+            {
+              "n": 5,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 6,
+              "defects": [
+                "screenshot-name-collision"
+              ],
+              "controls": []
+            },
+            {
+              "n": 7,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 8,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 6,
+          "ok": true,
+          "error": null,
+          "cost": 1.627,
+          "tokens": 1545067,
+          "seconds": 268,
+          "model": "opus",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr12-ui-probe, round 1\n\n## Summary\nThe pure parts are solid and well tested: the gates, numbered diff, link refusal, review gap checking and base comparison. But the committed test suite fails because the eval fixture is missing. The probe's orchestration (startup, merge-base, Tab walk, screenshots) has no automated test. And several traced cases misreport what the probe measured.\n\n## Blocking\n1. **The eval fixture `test/evals/ui/` isn't in the commit, so `npm test` fails** — `test/evals.test.js:11`, `test/evals/run.mjs:24`, `test/evals/run.mjs:188`\n   Problem: `git ls-files test/evals` lists only `run.mjs` and `score.mjs`. `test/evals.test.js:11` reads `test/evals/ui/defects.json` when the module loads. I ran `node --test test/evals.test.js` on this commit and it fails with `ENOENT … test/evals/ui/defects.json`. That takes every test in the file with it, the end-to-end benchmark test included. `npm run eval:reviewers` can't run either: `run.mjs:188` reads the same file, and `buildRepo` copies `ui/base`, `ui/change` and `ui/job`. build.md's \"94 tests pass\" isn't true of this commit. round.md ran no checks, so nothing caught it.\n   Required change: Commit the fixture: `defects.json`, `base/` with its `package.json`, lock file and `serve.mjs`, `change/`, and `job/` with `request.md`, `spec.md`, `build.md` and `project.md`. Keep `node_modules` out of it. Then confirm `npm test` passes.\n\n2. **A non-default state whose \"How to reach it\" names only the bare route is visited at the default URL and reported as that state** — `template/.claude/skills/factory/probe.mjs:63`\n   Problem: `viaHow` takes the first backticked URL that `startsWith(route)`, and the route itself matches. Take a row like `` | `/billing` | confirm-dialog | On `/billing`, press **Remove** | ``. It gets `path: '/billing'`. The probe then measures and screenshots the default page as \"confirm-dialog\" and never lists the row under Not visited. That breaks AC1. Reviewers are told the state was covered, and the UX reviewer's \"name the test that renders it\" rule for `N…` items never applies. The spec-writer's instructions (`factory-spec-writer.md:95-98`) say any other state is visited only at a URL that reaches it, and the bare route doesn't.\n   Required change: For a non-default state, ignore a URL equal to the route (`u !== route && u.startsWith(route)`, or require a query, hash or longer path). Add this case to `probe.test.js`.\n\n3. **When no screen has a URL, the unvisited screens aren't listed and nobody has to answer for them** — `template/.claude/skills/factory/probe.mjs:665`, `template/.claude/skills/factory/probe.mjs:248-250`\n   Problem: If every row lacks a URL, `runProbe` returns `skip('no screen … has a URL.')`. `renderProbe` then prints only that reason, without the per-screen `N…` items. `reviewGaps` returns `[]` for any status other than `ran`, so check-review owes nothing either. AC1 says screens with no URL are listed as not visited. Here they aren't listed, so no reviewer has to name a test for each state.\n   Required change: When `r.unreached` is non-empty, render the Not visited list with IDs and make reviewers answer for it. One way is to keep `status: 'ran'` with zero visits in this case. Another is to let `reviewGaps` and `renderProbe` handle `unreached` on a skipped run. Add a test.\n\n4. **A startup failure that can't be compared with the base is \"Not run\", not unverified** — `template/.claude/skills/factory/probe.mjs:720`, `template/.claude/skills/factory/round.mjs:378-381`\n   Problem: Suppose the head doesn't start and the base can't be compared. That happens when `baseCheckout` refuses because dependency files changed with no `worktree.setup`, or when the merge-base checkout fails. `runProbe` returns `skip(\"the app didn't start: …\", 'error')`, and `r.baseNote` (why the comparison was refused) is dropped. round.mjs renders this as \"Not run: … Review from the diff.\", the round goes ahead, and check-review owes nothing. So a change that adds a dependency and breaks startup passes with no item for any reviewer to answer. AC2 and AC5 say a problem that can't be compared is reported as unverified.\n   Required change: When the head fails to start and no base result is available, record an `app-start` finding with `origin: 'unverified'` in a `ran` report (so it becomes a `U` item reviewers must answer), and include the base note. Keep the current behaviour only when the base also fails to start, which is a pre-existing problem. Cover it in the test asked for in #8.\n\n5. **Page errors that include the server's origin never match the base, so problems already on the base block** — `template/.claude/skills/factory/probe.mjs:116`, `template/.claude/skills/factory/probe.mjs:541`\n   Problem: `fingerprint` includes the full message for `page-error`. `withServer` picks a new free port on each call, so the head and base runs serve on different origins. Any error message that contains a URL then differs between the two runs, for example `Failed to fetch dynamically imported module: http://localhost:53122/src/x.js` or an error thrown from a fetch to the dev server. `compareWithBase` marks it `new`, and the round is blocked for a problem the merge base has. That breaks AC2.\n   Required change: Normalise the origin out before fingerprinting (replace the visit's origin with a placeholder when recording `pageErrors`, or in `fingerprint`). Add a `compareWithBase` test with the same error on two ports.\n\n6. **Screenshot file names can collide, so one visit overwrites another's screenshot** — `template/.claude/skills/factory/probe.mjs:504`, `template/.claude/skills/factory/probe.mjs:451`\n   Problem: `slug` turns every run of non-alphanumerics into `-`, so `/a/b` and `/a-b`, or `/billing?tab=1` and `/billing-tab-1`, in the same state, width and theme, write the same file. The second visit overwrites the first's screenshot. Both visits then report the same path, and check-review accepts a single listed file for two visits. AC4 says each visit takes a screenshot.\n   Required change: Make the name unique per visit, for example by appending a short hash of `v.key` (the contract's example `billing-default-320-light-3f9a1c2e.png` already assumes one) or by de-duplicating with a counter.\n\n7. **`addedLines` can take a changed line for a file header and drop the rest of that file's lines** — `template/.claude/skills/factory/round.mjs:165`\n   Problem: `addedLines` treats any `+++ ` line straight after a `--- ` line as a header, even inside a hunk. With `-U0`, a removed line `-- note` (`--- note` in the diff) followed by an added line `++ x` (`+++ x`) sets `file = null`. Every later added line in that file is then dropped, so a `scope: \"lines\"` gate counts problems on them as older and passes (AC7). `numberDiff` avoids this with its `n === null` guard, which resets on `diff --git` (`round.mjs:197-199`). `addedLines` has no such guard.\n   Required change: Accept `+++ ` as a header only before the file's first `@@`, resetting on `diff --git` as `numberDiff` does. Add the `--- `/`+++ ` inside-a-hunk case to the `addedLines` test.\n\n8. **No automated tests for the probe's run itself: AC3, AC5, AC6 and the screenshot half of AC4** — `template/.claude/skills/factory/probe.mjs:634-735`, `template/.claude/skills/factory/probe.mjs:453-471`, `template/.claude/skills/factory/probe.mjs:590-619`\n   Problem: `probe.test.js` covers only the pure helpers. Nothing runs `runProbe`, `withServer`, `baseCheckout`, `visit` or `tabWalk`. build.md's evidence for AC3 and AC5 is \"manual run\". For AC6 it cites `probe.test.js`, but that file only feeds hand-made `tab` objects to `findingsOf` and `renderProbe`; the walk's completion, trap and iframe logic is never run. Untested paths include: the head failing while the base starts, giving `app-start` (AC3); the dependency-file refusal (AC5); only failing visits being re-run on the base; one screenshot per visit; and `baseCheckout` cleaning up a stale `.probe-base` worktree. Any of these could regress with the suite still green.\n   Required change: Add a `runProbe` test that needs no real browser. `load()` searches the worktree's `node_modules`, so write stub `playwright` and `axe-core` packages there. Use a tiny `node` HTTP server as `ui.serve`, in a throwaway repo with a base and a branch. Cover: a broken `ui.serve` on the branch only, which must produce a new `app-start` failure; a `package.json` change with no `setup`, which must be reported unverified; a failing visit compared with the base, new versus pre-existing; a screenshot recorded per visit; and `tabWalk` reporting `complete` and `trap`.\n\n## Coverage\n- Read: README.md, SPEC.md (added sections skimmed for code claims), package.json, src/util.js, template/.claude/agents/factory-approver.md, template/.claude/agents/factory-builder.md, template/.claude/agents/factory-review-ui.md, template/.claude/agents/factory-review-ux.md, template/.claude/agents/factory-spec-writer.md, template/.claude/skills/factory/SKILL.md, template/.claude/skills/factory/probe.mjs, template/.claude/skills/factory/reviewer-contract.md, template/.claude/skills/factory/round.mjs, template/.claude/skills/factory/runner.mjs, template/.claude/skills/factory/worktree.mjs, template/factory/config.json, test/evals.test.js, test/evals/run.mjs, test/evals/score.mjs, test/fixtures/fake-claude.mjs, test/probe.test.js, test/round.test.js, test/runner.test.js, test/worktree.test.js\n- Not read: None. README.md and SPEC.md are prose and were read only for claims about the code.\n\n## Suggestions (non-blocking)\n- Possible Duplicated Code: `section()` now exists three times with slightly different regexes and trimming (`probe.mjs:294`, `runner.mjs:534`, `test/evals/score.mjs:15`), and `readJson` is copied again in `probe.mjs:630`. One shared helper would stop the copies drifting.\n- Possible Duplicated Code: `runSetup` in `worktree.mjs:80-88` repeats `runCheck`'s spawn, timing and tail logic in `round.mjs:310-317`.\n- `runProbe` computes `mergeBase` (`probe.mjs:697`) even when no visit failed. It's only needed on the base path. As written, a missing `config.baseBranch` crashes a probe that had nothing to compare.\n- The base run repeats the Tab walk for `tabWalk` visits (`probe.mjs:712`), but walk findings are only warnings and are never compared. Pass `tabWalk: false` for base visits to save the work.\n- `parseScreens` with route `/` matches every backticked path in \"How to reach it\", API paths included (`probe.mjs:63`). The fix for #2 could also skip paths under `/api/`.\n",
+          "repo": null
+        }
+      }
+    }
+  ],
+  "rescored": "2026-11-17T09:42:30.285Z"
+}

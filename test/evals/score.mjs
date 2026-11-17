@@ -21,12 +21,23 @@ function section(markdown, heading) {
   return m ? m[1] : '';
 }
 
-/** The `file:line` and `file:from-to` references, probe IDs and screenshots in some text. */
+/**
+ * The `file:line` and `file:from-to` references, probe IDs and screenshots in some
+ * text. A bare `:407-411` after a file reference is another range in that file, and
+ * so is each item of a list (`probe.mjs:451,504`).
+ */
 export function citations(text) {
   const lines = [];
-  for (const m of text.matchAll(/([\w./-]+\.[A-Za-z]\w*):(\d+)(?:\s*[-–]\s*(\d+))?/g)) {
-    const from = Number(m[2]);
-    lines.push({ file: m[1], from, to: Math.max(from, Number(m[3] ?? from)) });
+  let last = null;
+  const range = String.raw`\d+(?:\s*[-–]\s*\d+)?`;
+  for (const m of text.matchAll(new RegExp(String.raw`(?:([\w./-]+\.[A-Za-z]\w*)|(?<![\w)\]])):(${range}(?:,${range})*)`, 'g'))) {
+    const file = m[1] ?? last;
+    if (!file) continue;
+    last = file;
+    for (const part of m[2].split(',')) {
+      const [from, to = from] = part.split(/[-–]/).map((x) => Number(x.trim()));
+      lines.push({ file, from, to: Math.max(from, to) });
+    }
   }
   const probe = [...probeIds(text)];
   const shots = [...new Set([...text.matchAll(/([\w.-]+\.png)\b/g)].map((m) => m[1]))];

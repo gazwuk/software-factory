@@ -485,7 +485,8 @@ branch adds the reviewed commit's change) and runs the code reviewer on round 1,
 with a spec and build notes in `test/evals/code/jobs/` that say only what the PR set
 out to do. It needs this repo's full history, so not a shallow clone.
 
-**Cost:** about $1 a run on Sonnet (three reviews), so about $3 for the default.
+**Cost:** a run is three reviews: about $0.90 on Sonnet and $3.70 on Opus at API
+prices, so the default 3 runs are about $2.70 or $11.
 
 **Scoring** is the same `file:line` matching, plus each defect's `terms`: a finding
 that cites a defect's lines finds it only if it also uses one of them, so "no tests
