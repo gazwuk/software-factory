@@ -1,0 +1,181 @@
+{
+  "about": "Real defects GitHub Copilot found in this repo's own PRs, each confirmed and fixed afterwards. A case replays the commit Copilot reviewed as a factory job: base is the PR's merge base, head the reviewed commit. Line ranges are in head.",
+  "cases": [
+    {
+      "id": "pr8-headless-runner",
+      "title": "Headless runner",
+      "pr": 8,
+      "base": "4be7d9d7ad1d4b15267746f8d5cb0069bf1c7b8f",
+      "head": "3714058a7dffcb3d3b332cd2ebda67730ba00264",
+      "exclude": [],
+      "defects": [
+        {
+          "id": "runner-probe-misses-job-locks", "lane": "code", "source": "SKILL.md:59-61",
+          "description": "`board.mjs runner` reports only the scheduler lock, so while `run --job` or `rework` holds a job lock the session thinks no runner is live and can drive the same job a second time.",
+          "locations": [
+            { "file": "template/.claude/skills/factory/SKILL.md", "lines": [59, 61], "text": "board.mjs runner` prints a pid" },
+            { "file": "template/.claude/skills/factory/board.mjs", "lines": [210, 214], "text": "lockPath(root, 'runner')" }
+          ]
+        },
+        {
+          "id": "backlog-append-unlocked", "lane": "code", "source": "SKILL.md:74",
+          "description": "Backlog commands still run in the session while a runner is live, and the session appends to backlog.md without the backlog lock, so claimBacklogItem's read-rewrite can drop the appended task.",
+          "locations": [
+            { "file": "template/.claude/skills/factory/SKILL.md", "lines": [74, 74], "text": "Everything else (`status`, `backlog`" },
+            { "file": "template/.claude/skills/factory/SKILL.md", "lines": [375, 375], "text": "append to the end of `factory/backlog.md`" }
+          ]
+        },
+        {
+          "id": "stale-lock-takeover-race", "lane": "code", "source": "board.mjs:71-75",
+          "description": "Stale-lock recovery renames the lock aside after reading its pid; another process can replace the lock in between, and a third can take the vacant path before the mismatch is noticed, so two live holders enter the critical section.",
+          "locations": [{ "file": "template/.claude/skills/factory/board.mjs", "lines": [69, 79], "text": "renameSync(path, moved)" }]
+        },
+        {
+          "id": "abort-after-acquire", "lane": "code", "source": "board.mjs:105",
+          "description": "withLockAsync checks the abort signal only while waiting, so an abort during the sleep followed by a successful acquire still runs fn (it can merge after Ctrl+C).",
+          "locations": [{ "file": "template/.claude/skills/factory/board.mjs", "lines": [100, 105], "text": "signal?.throwIfAborted()" }]
+        },
+        {
+          "id": "detached-agents-outlive-lock", "lane": "code", "source": "harness/claude-code.mjs:98",
+          "description": "Agents run detached and survive a crashed runner, but the job lock records only the runner's pid, so a restarted runner reclaims the job and starts a second agent in the same worktree.",
+          "locations": [
+            { "file": "template/.claude/skills/factory/harness/claude-code.mjs", "lines": [96, 98], "text": "detached: true" },
+            { "file": "template/.claude/skills/factory/runner.mjs", "lines": [587, 591], "text": "if (!tryLock(lock))" }
+          ]
+        },
+        {
+          "id": "ship-deletes-branch-first", "lane": "code", "source": "runner.mjs:406-407",
+          "description": "ship() deletes the job branch before recording stage merged; a crash in between leaves an approval-stage job whose re-ship fails on the missing branch and lands in needs-human.",
+          "locations": [{ "file": "template/.claude/skills/factory/runner.mjs", "lines": [405, 407], "text": "'branch', '-d', branch" }]
+        },
+        {
+          "id": "record-commit-failure-ignored", "lane": "code", "source": "runner.mjs:409-410",
+          "description": "Staging and committing the job record go through gitTry, which swallows failures, and the job is still marked merged, so a rejected commit leaves the record uncommitted and never retried.",
+          "locations": [{ "file": "template/.claude/skills/factory/runner.mjs", "lines": [409, 411], "text": "record job ${id}" }]
+        },
+        {
+          "id": "backlog-ticked-before-job", "lane": "code", "source": "runner.mjs:529",
+          "description": "The backlog item is ticked before the job is created on the board; a crash in between loses the task for good, since restart resumes only board jobs and claims only unticked items.",
+          "locations": [{ "file": "template/.claude/skills/factory/runner.mjs", "lines": [529, 531], "text": "claimBacklogItem(root" }]
+        },
+        {
+          "id": "job-flag-without-value", "lane": "code", "source": "runner.mjs:696-697",
+          "description": "`run --job` or `run --job=` leaves opts.job empty, so main() takes the no-job branch and runs (and merges) the whole queue instead of rejecting the command.",
+          "locations": [
+            { "file": "template/.claude/skills/factory/runner.mjs", "lines": [696, 696], "text": "opts.job = value()" },
+            { "file": "template/.claude/skills/factory/runner.mjs", "lines": [743, 743], "text": "if (!opts.job) await runAll" }
+          ]
+        },
+        {
+          "id": "approve-outside-job-lock", "lane": "code", "source": "runner.mjs:752-755",
+          "description": "approve and rework check the needs-human stage and act without the job lock, so two approvals (or approve and rework) race; the second fails on the deleted branch and flips a merged job back to needs-human.",
+          "locations": [{ "file": "template/.claude/skills/factory/runner.mjs", "lines": [752, 756], "text": "job.stage !== 'needs-human'" }]
+        },
+        {
+          "id": "resume-loses-verdicts", "lane": "code", "source": "runner.mjs:597",
+          "description": "On resume the next action comes from the files, but verdicts written before a crash are never put back on the board, so a job can finish with reviewers still pending there.",
+          "locations": [{ "file": "template/.claude/skills/factory/runner.mjs", "lines": [595, 598], "text": "readFacts(ctx.root" }]
+        },
+        {
+          "id": "queued-check-starts-after-abort", "lane": "code", "source": "runner.mjs:664",
+          "description": "A check waiting for a limiter slot is handed the slot when the running check is killed on abort, and spawns with an already-aborted signal; the abort listener added afterwards never fires, so it runs unstoppable.",
+          "locations": [
+            { "file": "template/.claude/skills/factory/runner.mjs", "lines": [649, 656], "text": "const next = waiting.shift()" },
+            { "file": "template/.claude/skills/factory/runner.mjs", "lines": [662, 668], "text": "signal.addEventListener('abort', kill" }
+          ]
+        }
+      ],
+      "controls": []
+    },
+    {
+      "id": "pr9-runner-progress",
+      "title": "Headless runner progress",
+      "pr": 9,
+      "base": "34cc73bdcfe95ea8e22a81cc732a911b52516660",
+      "head": "06c1e74661fb8d1ca0c7b9aaaf1f1ef8bb25f383",
+      "exclude": [],
+      "defects": [
+        {
+          "id": "activity-cleanup-throws", "lane": "code", "source": "runner.mjs:678",
+          "description": "drive()'s finally removes the activity file with an rmSync that can throw, which skips unlock(lock) and keeps the job locked while the runner carries on.",
+          "locations": [{ "file": "template/.claude/skills/factory/runner.mjs", "lines": [677, 679], "text": "rmSync(activityFile(ctx.root, id)" }]
+        },
+        {
+          "id": "stale-activity-never-expires", "lane": "code", "source": "dashboard.html:592",
+          "description": "A crashed runner's activity file stops changing, so pollActivity's equality check never triggers a render; with a drawer open the 30s render timer is off too, and the dead step shows as running forever.",
+          "locations": [{ "file": "template/factory/dashboard.html", "lines": [586, 598], "text": "if (text === activityText) return false;" }]
+        }
+      ],
+      "controls": []
+    },
+    {
+      "id": "pr12-ui-probe",
+      "title": "UI probe, checkable reviews and static gates",
+      "pr": 12,
+      "base": "370c50582f66a33f059652e3d5eddd38b5ac1ec4",
+      "head": "5264e53fba583e991b5e2659776baa369d17c729",
+      "exclude": ["test/evals/results", "test/evals/ui"],
+      "defects": [
+        {
+          "id": "probe-urls-leak-secrets", "lane": "code", "source": "probe.mjs:487-490",
+          "description": "Failed-request URLs (and console and page-error text) are recorded whole in probe.json and probe.md, which are committed with the job, so tokens and signed-URL credentials leak.",
+          "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [484, 491], "text": "req.url()" }]
+        },
+        {
+          "id": "tab-trap-first-stop", "lane": "code", "source": "probe.mjs:462-466",
+          "description": "A focus trap on the first Tab stop is reported as a complete walk: the repeated stop equals stops[0], so the completion check fires before the trap check.",
+          "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [462, 466], "text": "s.id === stops[0].id" }]
+        },
+        {
+          "id": "dep-guard-ignores-uncommitted", "lane": "code", "source": "probe.mjs:592",
+          "description": "The dependency guard diffs the merge base against HEAD, missing uncommitted or untracked manifest and lockfile changes when the builder runs the probe, so the base borrows the wrong node_modules.",
+          "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [591, 593], "text": "mergeBase, 'HEAD'" }]
+        },
+        {
+          "id": "app-start-no-finding", "lane": "code", "source": "probe.mjs:720-727",
+          "description": "When neither the head nor the base app starts, the probe returns an error report with no finding, so reviews proceed without answering the startup failure.",
+          "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [719, 720], "text": "the app didn't start" }]
+        },
+        {
+          "id": "diff-path-quoting", "lane": "code", "source": "round.mjs:165-166",
+          "description": "addedLines takes the path from the +++ line as is, so a path with a space keeps git's trailing tab and a quoted path (non-ASCII) is dropped; new lint problems there count as older and a lines-scoped gate passes.",
+          "locations": [{ "file": "template/.claude/skills/factory/round.mjs", "lines": [165, 166], "text": "line.slice(6)" }]
+        },
+        {
+          "id": "numbered-diff-drops-modes", "lane": "code", "source": "round.mjs:197-199",
+          "description": "numberDiff prints a file only from its ---/+++ headers, so mode changes, new-file modes and pure renames, which have none, vanish from the diff every reviewer reads.",
+          "locations": [{ "file": "template/.claude/skills/factory/round.mjs", "lines": [197, 201], "text": "line.startsWith('diff --git ')" }]
+        },
+        {
+          "id": "axe-truncated-before-compare", "lane": "code", "source": "probe.mjs:478 (round 2)",
+          "description": "runAxe keeps only the first five nodes per rule before the base comparison, so a sixth violation the change adds matches the base's five and is never reported.",
+          "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [441, 446], "text": "v.nodes.slice(0, nodes)" }]
+        },
+        {
+          "id": "screenshot-name-collision", "lane": "code", "source": "probe.mjs:547 (round 2)",
+          "description": "Screenshot names are slugs of path, state, width and theme, so distinct visits such as /a-b and /a/b overwrite one file and check-review accepts it for both.",
+          "locations": [{ "file": "template/.claude/skills/factory/probe.mjs", "lines": [504, 504], "text": "slug(v.path)}-" }]
+        },
+        {
+          "id": "max-visits-drops-states", "lane": "code", "source": "probe.mjs:719 (round 2)",
+          "description": "planVisits cuts visits at ui.maxVisits, and a screen/state that loses every visit isn't added to unreached, so check-review never asks about it.",
+          "locations": [
+            { "file": "template/.claude/skills/factory/probe.mjs", "lines": [101, 101], "text": "visits.slice(0, ui.maxVisits)" },
+            { "file": "template/.claude/skills/factory/probe.mjs", "lines": [662, 664], "text": "r.unreached = rows" }
+          ]
+        },
+        {
+          "id": "existing-link-skips-ignore-check", "lane": "code", "source": "worktree.mjs:56-58 (round 2)",
+          "description": "A symlink left by an earlier run is accepted without the ignore check new links get, so after ignore rules change a now-committable link passes preparation.",
+          "locations": [{ "file": "template/.claude/skills/factory/worktree.mjs", "lines": [55, 58], "text": "present.isSymbolicLink()" }]
+        },
+        {
+          "id": "lines-gate-fails-open", "lane": "code", "source": "round.mjs:374-377 (round 2)",
+          "description": "A lines-scoped gate that exits non-zero passes whenever no parsed problem is on a changed line, even if its output also has a fatal config or runtime error.",
+          "locations": [{ "file": "template/.claude/skills/factory/round.mjs", "lines": [323, 326], "text": "!problems.added.length" }]
+        }
+      ],
+      "controls": []
+    }
+  ]
+}

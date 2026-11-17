@@ -11,20 +11,17 @@
 // round 1 with the real round.mjs (and so probe.mjs), runs factory-review-ui and
 // factory-review-ux through the configured harness, and scores their reviews with
 // score.mjs. Results go to <out>/<date>-<variant>.json, and a summary is printed.
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { init } from '../../src/init.js';
+import { REPO, factory, fmt, git, preflightClaude, readJson, resultsPath, reviewRound, usd } from './common.mjs';
 import { scoreRun, spread } from './score.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = resolve(HERE, '../..');
 const FIXTURE = join(HERE, 'ui');
 const REVIEWERS = ['ui', 'ux'];
-
-const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
 export function parseArgs(argv) {
   const template = readJson(join(REPO, 'template/factory/config.json'));
@@ -45,7 +42,6 @@ export function parseArgs(argv) {
   return opts;
 }
 
-const git = (args, cwd) => execFileSync('git', ['-c', 'user.name=eval', '-c', 'user.email=eval@example.com', ...args], { cwd, stdio: 'pipe' }).toString().trim();
 const copy = (from, to) => cpSync(from, to, { recursive: true, filter: (src) => basename(src) !== 'node_modules' });
 
 /** A throwaway repo with the fixture's base on main and the job's change on its branch, round 1 not yet prepared. */
@@ -95,39 +91,11 @@ async function buildRepo({ probe, model, fixture }) {
   return { root, config, job };
 }
 
-/** A module from the throwaway repo's copy of the factory, so it works on that repo. */
-const factory = (root, file) => import(pathToFileURL(join(root, '.claude/skills/factory', file)).href);
-
 async function runOnce({ probe, model, fixture, keep }) {
   const { root, config, job } = await buildRepo({ probe, model, fixture });
   try {
-    const [{ prepareRound }, { prompts, paths, agentTools }, { checkReview }, { costOf }, harness] = await Promise.all([
-      factory(root, 'round.mjs'), factory(root, 'runner.mjs'), factory(root, 'probe.mjs'), factory(root, 'usage.mjs'),
-      factory(root, `harness/${config.runner.harness}.mjs`),
-    ]);
-    const summary = prepareRound(root, job.id, 1, { probeBlocks: false });
-    if (!summary.ok) throw new Error(`round 1 didn't prepare: ${summary.failed.join(', ')}`);
-    const p = paths(root, job);
-    const roundDir = p.round(1);
-    const round = readJson(join(roundDir, 'round.json'));
+    const { round, roundDir, reviews } = await reviewRound(root, config, job);
     if (probe && round.probe?.status !== 'ran') throw new Error(`the probe didn't run: ${round.probe?.reason ?? 'no reviewer selected it'}`);
-
-    const reviews = await Promise.all(summary.run.map(async ({ name, model: m }) => {
-      const agent = `review-${name}`;
-      const res = await harness.runAgent({
-        root, agent, model: m, prompt: prompts.reviewer(p, job, config.baseBranch, name, 1),
-        tools: agentTools(root, agent), options: config.runner,
-      });
-      const file = join(roundDir, `review-${name}.md`);
-      return {
-        name, model: m, ok: res.ok, error: res.error,
-        text: existsSync(file) ? readFileSync(file, 'utf8') : '',
-        checkReview: checkReview(root, job.id, 1, name).ok,
-        cost: costOf(res.usage.models, config.pricing).costUsd,
-        tokens: Object.values(res.usage.models).reduce((n, t) => n + t.input + t.output + t.cacheRead + t.cacheWrite5m + t.cacheWrite1h, 0),
-        seconds: res.usage.activeSeconds,
-      };
-    }));
     const probeJson = round.probe?.status === 'ran' ? readJson(join(roundDir, 'probe.json')) : null;
     const score = scoreRun({ reviews: Object.fromEntries(reviews.map((r) => [r.name, r.text])), fixture, probe: probeJson });
     for (const r of reviews) Object.assign(score.reviewers[r.name], { ok: r.ok, error: r.error, checkReview: r.checkReview, cost: r.cost, tokens: r.tokens, seconds: r.seconds, model: r.model });
@@ -156,13 +124,6 @@ export function summarize(runs, fixture) {
   };
 }
 
-const fmt = (s, pct = true) => {
-  if (!s) return '—';
-  const f = (x) => (pct ? `${Math.round(x * 100)}%` : Number.isInteger(x) ? String(x) : x.toFixed(2));
-  return s.min === s.max ? f(s.mean) : `${f(s.mean)} (${f(s.min)}–${f(s.max)})`;
-};
-const usd = (s) => (s ? `$${s.mean.toFixed(2)}${s.min === s.max ? '' : ` ($${s.min.toFixed(2)}–$${s.max.toFixed(2)})`}` : '—');
-
 export function renderSummary(variant, runs, summary, fixture) {
   const out = [`\n${variant} — ${runs} run(s)`, ''];
   out.push('| Reviewer | Recall (own lane) | Precision | False positives on controls | check-review | Cost per run |');
@@ -175,24 +136,13 @@ export function renderSummary(variant, runs, summary, fixture) {
   return out.join('\n');
 }
 
-function resultsPath(dir, variant) {
-  const date = new Date().toISOString().slice(0, 10);
-  for (let k = 1; ; k++) {
-    const path = join(dir, `${date}-${variant}${k > 1 ? `-${k}` : ''}.json`);
-    if (!existsSync(path)) return path;
-  }
-}
-
 export async function main(argv, { log = console.log } = {}) {
   const opts = parseArgs(argv);
   const fixture = readJson(join(FIXTURE, 'defects.json'));
   if (!existsSync(join(FIXTURE, 'base/node_modules/playwright')) && opts.probe.includes('on')) {
     throw new Error('the fixture\'s Playwright and axe-core aren\'t installed: run `npm ci --prefix test/evals/ui/base`, then `npx --prefix test/evals/ui/base playwright install chromium`');
   }
-  const { preflight } = await import(pathToFileURL(join(REPO, 'template/.claude/skills/factory/harness/claude-code.mjs')).href);
-  const command = process.env.FACTORY_EVAL_CLAUDE?.split(' ');
-  const why = preflight({ command });
-  if (why) throw new Error(why);
+  await preflightClaude();
   mkdirSync(opts.out, { recursive: true });
 
   const written = [];

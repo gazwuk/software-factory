@@ -584,7 +584,7 @@ template/           # exactly what lands in the user's repo
 README.md
 LICENSE             # MIT
 test/               # node:test — init/update/dashboard, board locks, the runner (with a fake claude) against temp git repos
-test/evals/         # opt-in reviewer benchmark (npm run eval:reviewers); not in the package
+test/evals/         # opt-in reviewer benchmarks (npm run eval:reviewers, eval:code-reviewer); not in the package
 ```
 
 ## Reviewer benchmark
@@ -621,6 +621,33 @@ a fixture with planted defects. It runs real agents, so it isn't part of `npm te
   mean and range of each metric, combined recall, probe recall, per-defect hit counts
   and cost from usage.mjs prices. Written to
   `test/evals/results/<date>-<variant>.json` with the review texts.
+
+`npm run eval:code-reviewer` (`test/evals/code.mjs`) measures the code reviewer on
+real defects from this repo's history. Both runners share `common.mjs` (round
+preparation, running the reviewers, result files).
+
+- **Cases (`test/evals/code/cases.json`):** a commit GitHub Copilot reviewed on one
+  of this repo's PRs (`base` = the PR's merge base, `head` = the reviewed commit,
+  `exclude` = pathspecs left out of the change, such as benchmark fixtures and
+  results), and the problems Copilot raised there that were confirmed and fixed
+  later, as `defects` with `{ file, lines, text }` locations in `head`. A defect raised
+  in a later round of the PR is included when its code is already in `head`. A unit
+  test checks each location against `git show <head>:<file>` (skipped in a shallow
+  clone). `jobs/<case>/` holds request.md, spec.md and build.md, written from what the
+  PR set out to do and nothing Copilot found; `project.md` is shared.
+- **A run:** a temp repo with `git archive <base>` committed on main, the factory
+  installed but not committed (so the worktree holds only the code under review;
+  the installed factory is newer and has the fixes), only the code reviewer enabled
+  on the variant's model, no checks, and a worktree with `git diff base head` applied
+  and committed. Round 1 is prepared and reviewed as in the UI benchmark. Cases run in
+  parallel.
+- **Scoring:** `scoreReview` with lane `code`. A bare file name (`runner.mjs:406`)
+  counts as a citation of that file. Unmatched = blocking findings that match no
+  defect; with real code these aren't all false positives.
+- **Output:** per model, `--runs` runs (default 3) of the `--cases` (default all):
+  recall per case and over all cases, blocking and unmatched counts, per-defect hit
+  counts and cost. Written to `test/evals/results/<date>-code-<model>.json` with the
+  review texts.
 
 ## Changes from the reference
 

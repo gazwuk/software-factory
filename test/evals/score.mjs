@@ -1,5 +1,7 @@
-// Scores UI and UX reviews against the planted defects in a fixture's defects.json.
-// Pure: no model, no files. run.mjs uses it, and test/evals.test.js tests it.
+// Scores reviews against a fixture's known defects: the planted ones in ui/defects.json,
+// or a case's real ones in code/cases.json.
+// Pure: no model, no files. run.mjs and code.mjs use it; test/evals.test.js and
+// test/code-eval.test.js test it.
 //
 // A blocking finding finds a defect when it cites one of the defect's locations
 // (`file:line` or `file:from-to`, overlapping its line range), or a probe item (`W3`)
@@ -51,9 +53,10 @@ export function blockingFindings(review) {
   return findings;
 }
 
+// A bare file name counts too: `runner.mjs:406` for template/.../runner.mjs.
 const sameFile = (cited, file) => {
   const c = cited.replace(/^\.?\//, '');
-  return c === file || c.endsWith(`/${file}`);
+  return c === file || c.endsWith(`/${file}`) || (!c.includes('/') && file.split('/').pop() === c);
 };
 
 const atLocation = (cite, locations) => locations.some((l) => sameFile(cite.file, l.file) && cite.from <= l.lines[1] && cite.to >= l.lines[0]);

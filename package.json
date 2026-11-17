@@ -13,7 +13,8 @@
   ],
   "scripts": {
     "test": "node --test test/*.test.js",
-    "eval:reviewers": "node test/evals/run.mjs"
+    "eval:reviewers": "node test/evals/run.mjs",
+    "eval:code-reviewer": "node test/evals/code.mjs"
   },
   "engines": {
     "node": ">=18"
