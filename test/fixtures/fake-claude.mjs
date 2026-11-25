@@ -6,6 +6,7 @@
 //      FAKE_BUILDER_HANG=<marker> makes the first builder run hang until killed.
 //      FAKE_CHANGES_ONCE=<marker> makes the first code review ask for changes.
 //      FAKE_REVIEWS=<dir> makes reviewer <name> write <dir>/review-<name>.md, if it exists.
+//      FAKE_RETRO_SILENT=1 makes the retro agent write nothing.
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -50,6 +51,9 @@ if (agent === 'spec-writer') {
   else writeFileSync(line('Output'), changes ? 'VERDICT: CHANGES\n\n1. Fix it.\n' : 'VERDICT: PASS\n');
 } else if (agent === 'approver') {
   writeFileSync(line('Output'), 'APPROVE\nReason: all criteria met\n');
+} else if (agent === 'retro' && !process.env.FAKE_RETRO_SILENT) {
+  const facts = JSON.parse(readFileSync(line('Facts'), 'utf8'));
+  writeFileSync(line('Output'), `# Retro — ${facts.job}\n\nShort.\n\n## Causes\n${facts.why.map((w) => `- \`build-miss\` — ${w}\n`).join('')}\n## Lessons\n- [project.md] Conventions: "Do the thing."\n`);
 }
 
 console.log(JSON.stringify({

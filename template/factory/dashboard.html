@@ -296,6 +296,8 @@
   let usageText = null;
   let usage = { jobs: {} }; // usage.json, written by the cost-tracking hook
   let openJob = null;      // { id, updatedAt, docs, selected, opener } or { stats: true, … }
+  const retros = {};       // job id → its retro.json, for Stats (finished jobs only)
+  const retroFetched = {}; // job id → { updatedAt, at } of the last fetch
   let activity = {};       // job id → factory/activity/<id>.json, written by the headless runner
   let activityText = '';
   const ACTIVITY_STALE_MS = 60000; // the runner rewrites it every 15s while a step runs
@@ -643,6 +645,7 @@
       { group: 'Job', label: 'Request', path: `${base}request.md` },
       { group: 'Job', label: 'Spec', path: `${base}spec.md` },
       { group: 'Job', label: 'Build', path: `${base}build.md` },
+      { group: 'Job', label: 'Retro', path: `${base}retro.md` },
     ];
     const reviewers = Array.isArray(job.reviewers) ? job.reviewers : [];
     for (let r = 0; r <= (job.round || 0); r++) {
@@ -704,12 +707,16 @@
       const changes = verdicts.filter((v) => v === 'CHANGES').length;
       const mine = runs.filter((a) => a.agent === `review-${name}`);
       const cost = costFor((a) => a.agent === `review-${name}`);
+      const retro = Object.values(retros).map((f) => f.reviewers && f.reviewers[name]).filter(Boolean);
+      const sum = (k) => retro.reduce((n, t) => n + (t[k] || 0), 0);
       return [name, reviewed, reviewed ? `${changes} (${Math.round((100 * changes) / reviewed)}%)` : '0',
+        retro.length ? sum('disputed') : '—', retro.length ? sum('conceded') : '—',
         verdicts.filter((v) => v === 'SKIPPED').length, usd(cost), mine.length ? usd(cost / mine.length) : '—'];
     });
 
     const roles = [['spec-writer', (a) => a.agent === 'spec-writer'], ['builder', (a) => a.agent === 'builder'],
-      ['reviewers', (a) => a.agent.startsWith('review-')], ['approver', (a) => a.agent === 'approver']];
+      ['reviewers', (a) => a.agent.startsWith('review-')], ['approver', (a) => a.agent === 'approver'],
+      ['retro', (a) => a.agent === 'retro']];
     const roleRows = roles.map(([label, pred]) => {
       const cost = costFor(pred);
       return [label, runs.filter(pred).length, usd(cost), total ? `${Math.round((100 * cost) / total)}%` : '—'];
@@ -730,7 +737,8 @@
     return [
       { group: 'Stats', label: 'Reviewers', path: '#stats-reviewers', text: ['# Reviewers', '',
         'How often each reviewer asks for changes, against what it costs. A reviewer that rarely asks for changes may not earn its keep: narrow its `paths` or turn it off.', '',
-        table(['Reviewer', 'Reviews', 'Asked for changes', 'Skipped', 'Cost', 'Per review'], reviewerRows), '', COST_NOTE].join('\n') },
+        'From finished jobs\' retros: **Disputed** counts blocking findings the builder answered with "not changed"; **Conceded** counts those the reviewer then passed. A reviewer that concedes most of its findings is asking for things that aren\'t defects.', '',
+        table(['Reviewer', 'Reviews', 'Asked for changes', 'Disputed', 'Conceded', 'Skipped', 'Cost', 'Per review'], reviewerRows), '', COST_NOTE].join('\n') },
       { group: 'Stats', label: 'Cost', path: '#stats-cost', text: ['# Cost', '',
         `**${usd(total)}** across ${Object.keys(usage.jobs || {}).length} jobs.`, '',
         '## By role', '', table(['Role', 'Runs', 'Cost', 'Share'], roleRows), '',
@@ -752,7 +760,32 @@
     }
   }
 
+  // A finished job's retro.json, fetched again when the job changes, and every 30s while
+  // it's missing (a retro is written after the job reaches its last stage).
+  async function loadRetros() {
+    const due = (Array.isArray(board.jobs) ? board.jobs : []).filter((j) => {
+      if (ACTIVE.includes(j.stage)) return false;
+      const last = retroFetched[j.id];
+      return !last || last.updatedAt !== j.updatedAt || (!retros[j.id] && Date.now() - last.at > 30000);
+    });
+    let changed = false;
+    await Promise.all(due.map(async (j) => {
+      retroFetched[j.id] = { updatedAt: j.updatedAt, at: Date.now() };
+      try {
+        const res = await fetch(`jobs/${encodeURIComponent(j.id)}/retro.json`, { cache: 'no-store' });
+        const type = res.headers.get('content-type') || '';
+        if (!res.ok || type.includes('text/html')) return;
+        const text = await res.text();
+        if (JSON.stringify(retros[j.id]) === JSON.stringify(JSON.parse(text))) return;
+        retros[j.id] = JSON.parse(text);
+        changed = true;
+      } catch { /* missing, or mid-write: try again later */ }
+    }));
+    return changed;
+  }
+
   function refreshStats() {
+    loadRetros().then((changed) => { if (changed && openJob && openJob.stats) refreshStats(); });
     openJob.docs = statsDocs();
     if (!openJob.docs.some((d) => d.path === openJob.selected)) openJob.selected = openJob.docs[0].path;
     renderTabs();

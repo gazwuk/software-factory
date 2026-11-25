@@ -187,6 +187,8 @@ test('run --parallel 2 takes two backlog items to merge, writing the usual job f
 
   // Both started before either finished.
   assert.deepEqual(log(dir).slice(0, 2).map((l) => l.agent), ['spec-writer', 'spec-writer']);
+  assert.ok(!log(dir).some((l) => l.agent === 'retro'));
+  assert.match(out, /\[001-add-alpha\] retro: a clean job, nothing to explain/);
 
   const history = gitOut(dir, 'log', '--format=%s', 'main');
   for (const j of jobs) {
@@ -198,6 +200,10 @@ test('run --parallel 2 takes two backlog items to merge, writing the usual job f
       assert.ok(tracked.includes(`factory/jobs/${j.id}/${f}`), `${j.id}/${f}`);
     }
     assert.equal(readdirSync(join(dir, 'factory/jobs', j.id, 'usage')).length, 5, 'spec-writer, builder, 2 reviewers, approver');
+    assert.doesNotMatch(history, new RegExp(`factory: retro job ${j.id}`), 'a clean job gets no retro commit');
+    assert.ok(tracked.includes(`factory/jobs/${j.id}/retro.json`), 'its retro facts went in with the record');
+    assert.equal(JSON.parse(readFileSync(join(dir, 'factory/jobs', j.id, 'retro.json'), 'utf8')).clean, true);
+    assert.ok(!existsSync(join(dir, 'factory/jobs', j.id, 'retro.md')), 'a clean job needs no retro agent');
     assert.ok(existsSync(join(dir, `${j.id}.txt`)), 'the change is merged into the main checkout');
     assert.ok(!existsSync(join(dir, '.factory-worktrees', j.id)));
     assert.equal(gitOut(dir, 'branch', '--list', `factory/${j.id}`), '');
@@ -289,6 +295,52 @@ test('a review asking for changes gets a second round on the fix model', async (
   const builders = log(dir).filter((l) => l.agent === 'builder');
   assert.deepEqual(builders.map((b) => b.model), ['opus', 'sonnet']);
   assert.match(readFileSync(join(dir, 'factory/jobs/001-add-delta/build.md'), 'utf8'), /## Round 1 response/);
+
+  // Not a clean job, so the retro agent explains it, after the ship, and it's committed.
+  const agents = log(dir);
+  assert.equal(agents.at(-1).agent, 'retro');
+  assert.equal(agents.at(-1).model, 'sonnet');
+  assert.deepEqual(agents.at(-1).args.slice(agents.at(-1).args.indexOf('--allowedTools'), agents.at(-1).args.indexOf('--allowedTools') + 2),
+    ['--allowedTools', 'Read,Grep,Glob,Bash,Write']);
+  const facts = JSON.parse(readFileSync(join(dir, 'factory/jobs/001-add-delta/retro.json'), 'utf8'));
+  assert.deepEqual(facts.why, ['2 review rounds', 'code asked for changes in round 1 (1 blocking)']);
+  assert.equal(facts.shippedBy, 'approver');
+  assert.match(readFileSync(join(dir, 'factory/jobs/001-add-delta/retro.md'), 'utf8'), /## Causes\n- `build-miss` — 2 review rounds/);
+  assert.equal(gitOut(dir, 'log', '-1', '--format=%s'), 'factory: retro job 001-add-delta');
+  const tracked = gitOut(dir, 'ls-files', 'factory/jobs/001-add-delta').split('\n');
+  assert.ok(tracked.includes('factory/jobs/001-add-delta/retro.md'));
+  const usage = readdirSync(join(dir, 'factory/jobs/001-add-delta/usage')).map((f) => JSON.parse(readFileSync(join(dir, 'factory/jobs/001-add-delta/usage', f), 'utf8')));
+  const retroRun = usage.find((u) => u.agent === 'retro');
+  assert.ok(retroRun, 'the retro agent\'s cost is recorded');
+  assert.ok(tracked.includes(`factory/jobs/001-add-delta/usage/${retroRun.agentId}.json`), 'and committed with the retro');
+  assert.equal(gitOut(dir, 'status', '--porcelain', 'factory/jobs'), '');
+  assert.equal(board(dir).jobs[0].stage, 'merged', 'the retro leaves the stage alone');
+});
+
+test('retro.enabled false skips the retro; the retro command runs one on demand', async () => {
+  const dir = factoryRepo({ items: ['Add kappa'], config: { retro: { enabled: false } } });
+  let r = await runCli(dir, ['run']);
+  assert.equal(r.code, 0, r.out);
+  const id = '001-add-kappa';
+  assert.ok(!existsSync(join(dir, `factory/jobs/${id}/retro.json`)));
+
+  // Asked for, a retro runs the agent even on a clean job.
+  r = await runCli(dir, ['retro', id]);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(log(dir).filter((l) => l.agent === 'retro').length, 1);
+  assert.ok(existsSync(join(dir, `factory/jobs/${id}/retro.md`)));
+  assert.equal(gitOut(dir, 'log', '-1', '--format=%s'), `factory: retro job ${id}`);
+
+  // An agent that writes nothing is run once more, then the command fails; the job doesn't.
+  r = await runCli(dir, ['retro', id], { FAKE_RETRO_SILENT: '1' });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /no retro\.md was written; run `retro 001-add-kappa` to try again/);
+  assert.equal(log(dir).filter((l) => l.agent === 'retro').length, 3);
+  assert.equal(board(dir).jobs[0].stage, 'merged');
+
+  r = await runCli(dir, ['retro', '999-nope']);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /No job 999-nope on the board/);
 });
 
 test('needs-human jobs can be reworked or approved from the CLI', async () => {
@@ -383,7 +435,8 @@ test('a ship that stopped after merging carries on, and a failed record commit c
   assert.equal(r.code, 0, r.out);
   [j] = board(dir).jobs;
   assert.equal(j.stage, 'merged');
-  assert.match(gitOut(dir, 'log', '-1', '--format=%s'), /factory: record job 001-add-theta/);
+  assert.deepEqual(gitOut(dir, 'log', '-2', '--format=%s').split('\n'),
+    ['factory: retro job 001-add-theta', 'factory: record job 001-add-theta'], 'a human ship gets a retro too');
   assert.equal(gitOut(dir, 'log', '--format=%s').split('\n').filter((l) => l === 'merged').length, 1, 'not merged twice');
 });
 
