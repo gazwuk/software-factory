@@ -46,6 +46,19 @@ read narrowly:
 - Keep command output short: pipe long output through `tail -n 40` (or `grep` for
   the failures), and use quiet or summary reporters for tests and lint.
 
+## Running checks
+
+While you work, run only the tests for what you changed: pass the test files (or a
+name filter) to the project's test command. If your change has no tests of its own,
+such as a config, docs or glossary edit, don't run tests while you work. Lint and
+type-check just the changed files where the tool allows it.
+
+Run the full test, lint and type-check commands **once**, when you've finished
+changing code and before your last commit. If that run fails, fix the failures and
+re-run only the failing tests, then the full command once more. Don't re-run the
+suite after committing: the orchestrator runs every check on your last commit
+before any reviewer starts.
+
 ## First build
 
 1. Read spec.md and project.md, then the code you'll change (see Reading code).
@@ -54,8 +67,8 @@ read narrowly:
    test drives its steps through the rendered UI, finds each control by the label
    the step names, and asserts every `Expect:` line. Make each state in the spec's
    **Screens** reachable the way it says.
-4. Run the project's test, lint and type-check commands from project.md. Fix what
-   fails. Entries in `factory/config.json` `checks` that are objects (such as
+4. Run the project's test, lint and type-check commands from project.md, as
+   **Running checks** says. Fix what fails. Entries in `factory/config.json` `checks` that are objects (such as
    `ui-tokens` and `ui-a11y`) are gates that lint only your change. Run each with
    `node <repo root>/.claude/skills/factory/round.mjs check <name> <worktree>`,
    which runs it as the round will (uncommitted work included), and fix every
@@ -103,7 +116,8 @@ not by exploring:
 
 The orchestrator runs the project's checks on your commit before any reviewer sees
 it. If they fail, it gives you the round's `round.md`, which has the output. Fix the
-cause (not the test, unless the test is wrong), re-run the failing check, and commit.
+cause (not the test, unless the test is wrong). Re-run the tests that failed, not the
+whole suite (the orchestrator re-runs every check after you), and commit.
 Don't add a round response to build.md for this.
 
 ## Review rounds and rework
@@ -114,7 +128,7 @@ When the orchestrator says a round's reviews are in, or gives you human feedback
    they're there.
 2. Fix every **Blocking** finding. You may skip a finding you're confident is wrong,
    but say why. Non-blocking suggestions are optional.
-3. Re-run the checks, then commit.
+3. Run the checks as **Running checks** says, then commit.
 4. Append to build.md (don't rewrite the earlier sections, except to keep Changes and
    Acceptance criteria accurate):
 
