@@ -1,0 +1,251 @@
+{
+  "date": "2026-11-17T09:16:52.665Z",
+  "variant": "code-sonnet",
+  "model": "sonnet",
+  "runs": 1,
+  "cases": [
+    "pr8-headless-runner",
+    "pr9-runner-progress",
+    "pr12-ui-probe"
+  ],
+  "summary": {
+    "cases": {
+      "pr8-headless-runner": {
+        "defects": 12,
+        "recall": {
+          "mean": 0.16666666666666666,
+          "min": 0.16666666666666666,
+          "max": 0.16666666666666666
+        },
+        "blocking": {
+          "mean": 4,
+          "min": 4,
+          "max": 4
+        },
+        "unmatched": {
+          "mean": 2,
+          "min": 2,
+          "max": 2
+        },
+        "cost": {
+          "mean": 0.3826,
+          "min": 0.3826,
+          "max": 0.3826
+        }
+      },
+      "pr9-runner-progress": {
+        "defects": 2,
+        "recall": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "blocking": {
+          "mean": 1,
+          "min": 1,
+          "max": 1
+        },
+        "unmatched": {
+          "mean": 1,
+          "min": 1,
+          "max": 1
+        },
+        "cost": {
+          "mean": 0.1673,
+          "min": 0.1673,
+          "max": 0.1673
+        }
+      },
+      "pr12-ui-probe": {
+        "defects": 11,
+        "recall": {
+          "mean": 0.09090909090909091,
+          "min": 0.09090909090909091,
+          "max": 0.09090909090909091
+        },
+        "blocking": {
+          "mean": 3,
+          "min": 3,
+          "max": 3
+        },
+        "unmatched": {
+          "mean": 2,
+          "min": 2,
+          "max": 2
+        },
+        "cost": {
+          "mean": 0.4115,
+          "min": 0.4115,
+          "max": 0.4115
+        }
+      }
+    },
+    "defects": 25,
+    "recall": {
+      "mean": 0.12,
+      "min": 0.12,
+      "max": 0.12
+    },
+    "cost": {
+      "mean": 0.9614,
+      "min": 0.9614,
+      "max": 0.9614
+    },
+    "hits": {
+      "runner-probe-misses-job-locks": 0,
+      "backlog-append-unlocked": 0,
+      "stale-lock-takeover-race": 0,
+      "abort-after-acquire": 0,
+      "detached-agents-outlive-lock": 0,
+      "ship-deletes-branch-first": 0,
+      "record-commit-failure-ignored": 0,
+      "backlog-ticked-before-job": 1,
+      "job-flag-without-value": 0,
+      "approve-outside-job-lock": 0,
+      "resume-loses-verdicts": 0,
+      "queued-check-starts-after-abort": 1,
+      "activity-cleanup-throws": 0,
+      "stale-activity-never-expires": 0,
+      "probe-urls-leak-secrets": 0,
+      "tab-trap-first-stop": 0,
+      "dep-guard-ignores-uncommitted": 0,
+      "app-start-no-finding": 1,
+      "diff-path-quoting": 0,
+      "numbered-diff-drops-modes": 0,
+      "axe-truncated-before-compare": 0,
+      "screenshot-name-collision": 0,
+      "max-visits-drops-states": 0,
+      "existing-link-skips-ignore-check": 0,
+      "lines-gate-fails-open": 0
+    }
+  },
+  "results": [
+    {
+      "cases": {
+        "pr8-headless-runner": {
+          "verdict": "CHANGES",
+          "blocking": 4,
+          "matched": 2,
+          "precision": 0.5,
+          "recall": 0.16666666666666666,
+          "found": [
+            "backlog-ticked-before-job",
+            "queued-check-starts-after-abort"
+          ],
+          "foundInLane": [
+            "backlog-ticked-before-job",
+            "queued-check-starts-after-abort"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "backlog-ticked-before-job"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "queued-check-starts-after-abort"
+              ],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 2,
+          "ok": true,
+          "error": null,
+          "cost": 0.3826,
+          "tokens": 197698,
+          "seconds": 80,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr8-headless-runner, round 1\n\n## Summary\nThe loop, locks and harness are well structured, and `nextAction` is well covered by unit tests. Four problems block it. A killed runner can lose a claimed backlog item. `rework` can send a job with no spec to the builder. Ctrl+C is ignored by checks that start after it. Criterion 7 has no test.\n\n## Blocking\n1. **A backlog item is lost if the runner dies between claiming it and putting it on the board** — `template/.claude/skills/factory/runner.mjs:529-531`, `board.mjs:186-199`\n   Problem: `claimBacklogItem` ticks the item `- [x] … (job id)` and creates `factory/jobs/<id>/`. Only afterwards does `createJob` write `request.md` and add the board entry. A runner killed in that gap (criterion 2) leaves a ticked backlog line and an empty job folder, but no board entry. A re-run never adopts it, because adoption reads only the board. The task is silently dropped. The GitHub path (`:556-558`) has a smaller gap with the same shape.\n   Required change: make the claim recoverable. For example, write `request.md` and the board entry inside the backlog lock before ticking the item, or have `runAll` adopt job folders that have a `request.md` but no board entry. Add a test that simulates the gap, for example by calling `claimBacklogItem` without `createJob` and then running.\n\n2. **`rework` on a job that never got a spec goes straight to the builder** — `runner.mjs:760-765`, `runner.mjs:111-112`\n   Problem: a job can reach needs-human from `perform` case `'spec'` (\"the spec-writer wrote no spec.md\", `:249`). `rework` then sets `stage: 'build'` unconditionally. `nextAction` goes to `worktree`, and then to `build/rework` because `human.md` exists. The builder is given a spec path (`prompts.builder`) that doesn't exist, so it builds without a spec. The same happens at round 0 with any stage-`spec` failure.\n   Required change: in `rework`, if `spec.md` doesn't exist, set the stage back to `spec`. Alternatively, have `nextAction` return `{type:'spec'}` for the build stage when `!f.spec`. Add a test for rework after a spec failure.\n\n3. **Ctrl+C doesn't stop a check, or an agent, that starts after the abort** — `runner.mjs:662-677` (`runNode`), `runner.mjs:308-310`, `harness/claude-code.mjs:96-103`\n   Problem: both spawn helpers only add an `abort` listener. An already-aborted signal never fires it. `ctx.checks` queues behind `limiter`, so with `maxParallelChecks` below `parallel` a job can sit in the queue while Ctrl+C is pressed. When its slot opens, `round.mjs` starts with no kill path and runs the checks (no time limit) to completion. The runner doesn't exit until then, which breaks criterion 5. `signal.throwIfAborted()` runs only after `runNode` returns.\n   Required change: in `runNode` and the harness's `run`, check `signal.aborted` before spawning and don't spawn (or kill at once). Also check it after the limiter wait. Add a test: two jobs, `maxParallelChecks: 1`, a slow check, SIGTERM while one job waits, then assert that no check process is left running and the exit code is 130.\n\n4. **Acceptance criterion 7 (`maxParallelChecks`) has no test** — `test/runner.test.js`; limiter at `runner.mjs:646-658`\n   Problem: nothing exercises the limit. The `parallel 2` end-to-end test uses `maxParallelChecks: 1` with the instant check `true`, so it can't tell a working limiter from none. Nothing covers a limit above 1 either. The \"one process drives a job\" half of criterion 3 (the `job-<id>` lock refusal at `:588`) is also untested. Only the runner lock is.\n   Required change: add an end-to-end test with `--parallel 2` and a check command that records start and end times (or a lock-file overlap count). Assert that overlap is at most 1 with `maxParallelChecks: 1` and that it reaches 2 with `maxParallelChecks: 2`. Add a test that `run --job` is refused (logs \"another process is running this job\") when `job-<id>` is held.\n\n## Coverage\n- Read: README.md and SPEC.md (diffs only, no code), bin/cli.js, package.json, src/run.js, src/util.js, template/.claude/skills/factory/SKILL.md (diff), board.mjs, harness/claude-code.mjs, runner.mjs (whole file), usage.mjs (diff), template/factory/config.json, test/board.test.js, test/cli.test.js (diff), test/fixtures/fake-claude.mjs, test/runner.test.js\n- Not read: None.\n\n## Suggestions (non-blocking)\n- `runNode` (runner.mjs) and `run` (harness/claude-code.mjs) are near-duplicate spawn, process-group-kill and collect-output helpers. A shared helper would remove the duplication, and would also fix finding 3 in one place.\n- `rework` sets the stage to `build` before `preflight(ctx)` runs. If preflight throws, the job is left in `build` with no runner. Run preflight first.\n- `claimBacklogItem` writes `backlog.md` with `writeFileSync`, not an atomic rename. A crash mid-write can truncate the backlog.\n",
+          "repo": null
+        },
+        "pr9-runner-progress": {
+          "verdict": "CHANGES",
+          "blocking": 1,
+          "matched": 0,
+          "precision": 0,
+          "recall": 0,
+          "found": [],
+          "foundInLane": [],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 1,
+          "ok": true,
+          "error": null,
+          "cost": 0.1673,
+          "tokens": 118826,
+          "seconds": 31,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr9-runner-progress, round 1\n\n## Summary\nThe implementation covers all six criteria and the paths trace cleanly. Two behaviours have no test: the 60s \"still working\" line (criterion 2) and the 15s rewrite of the activity file (criterion 4).\n\n## Blocking\n1. **No test for the \"still working\" line (criterion 2)** — `template/.claude/skills/factory/runner.mjs:737-746`, `test/runner.test.js`\n   Problem: `heartbeat()` prints `<name> still working (<duration>; last: <call>)`. `QUIET_MS` and `HEARTBEAT_MS` are hard-coded constants (`runner.mjs:29-30`) and nothing exercises the function. A wrong format, a wrong quiet-timer reset, or a missing `last:` would pass the suite. The only grep hits for `activity` in `test/` are the end-of-run emptiness check and the mid-run file check. There is none for `still working`.\n   Required change: Make the two intervals overridable, for example through an env var or a `config.runner` field that the test sets small, or export `heartbeat`. Then add a test with the hanging fake builder. It should assert that the output contains `still working (…; last: Read …)`. It should also assert that `updatedAt` in `factory/activity/<id>.json` advances while the step runs (criterion 4's rewrite every 15s).\n\n## Coverage\n- Read: README.md, SPEC.md (diff skimmed; docs only, not in my lane), src/util.js, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs, template/factory/dashboard.html, test/fixtures/fake-claude.mjs, test/runner.test.js\n- Not read: None.\n\n## Suggestions (non-blocking)\n- Dashboard `pollActivity` returns false when the file text is unchanged. A crashed runner's stale file is therefore hidden only by the 30s `render()` interval (`dashboard.html:899`). It can show for up to about 90s, not 60s. Re-rendering when the newest `updatedAt` crosses the stale threshold would tighten this.\n- `elapsed` in `runner.mjs:691` and `since` in `dashboard.html:349` duplicate the same duration formatter. This is unavoidable across the Node/browser boundary, but a comment pointing at each other would help.\n- A failed agent prints no finish line. Consider logging the duration on failure too.\n",
+          "repo": null
+        },
+        "pr12-ui-probe": {
+          "verdict": "CHANGES",
+          "blocking": 3,
+          "matched": 1,
+          "precision": 0.3333333333333333,
+          "recall": 0.09090909090909091,
+          "found": [
+            "app-start-no-finding"
+          ],
+          "foundInLane": [
+            "app-start-no-finding"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "app-start-no-finding"
+              ],
+              "controls": []
+            }
+          ],
+          "unmatched": 2,
+          "ok": true,
+          "error": null,
+          "cost": 0.4115,
+          "tokens": 347599,
+          "seconds": 77,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr12-ui-probe, round 1\n\n## Summary\nThe design is sound, but the merge-base comparison and startup-break logic in `runProbe` has no test. A Screens row for `/` also parses wrongly and sends the probe to an API path. The factory's source files (`.mjs`) and the tests were read in full; the prose docs and agent definitions were not read (see Coverage).\n\n## Blocking\n1. **Route `/` accepts any URL as its own** — `template/.claude/skills/factory/probe.mjs:63`\n   Problem: `u.startsWith(route)` with `route === '/'` matches every URL. I ran `parseScreens` on the row `` `/` | error | mock `/api/items` to return 500 ``. It returned `path: '/api/items'`, so the probe visits the API endpoint, not the home page. The comment above says an API path mentioned there isn't opened, but that fails for the most common route. The state is also marked as reached, so nothing is listed under Not visited.\n   Required change: match on a path boundary (`u === route || u.startsWith(route + '/')` or `route + '?'` / `'#'`, with `/` handled specially). For `/`, accept only `/`, `/?…` and `/#…`. Add a test in `test/probe.test.js` for a `/` row that mentions an API URL.\n\n2. **Merge-base comparison, startup-break and dependency-file paths are untested** — `template/.claude/skills/factory/probe.mjs:590-735`\n   Problem: `test/probe.test.js` only covers pure helpers (`parseScreens`, `planVisits`, `findingsOf`, `compareWithBase`, `reviewGaps`). Nothing calls `runProbe`, `baseCheckout` or `withServer`. These acceptance criteria therefore have no test that would fail if the code were wrong:\n   - AC2: a new failure blocks and a pre-existing one doesn't (end to end).\n   - AC3: the app starts on the merge base but not on the commit, which gives an `app-start` failure.\n   - AC5: with no `worktree.setup`, a change to `package.json` or a lockfile makes `baseCheckout` return an error, so findings become `unverified`.\n   - The `status: 'error'` path (app doesn't start on either side).\n   - Base-checkout cleanup (the `node_modules` symlink is removed and the worktree is gone afterwards).\n   `test/round.test.js:183` stubs the probe, so it doesn't reach any of this.\n   Required change: add tests that drive `runProbe` against a small temp git repo with a stub `ui.serve` (a node http server). Use a stub or fake `playwright`/`axe-core`, or skip with a clear reason when Chromium is unavailable. Cover at least the AC3 and AC5 cases, plus one pre-existing-versus-new case.\n\n3. **Startup failure with no merge-base comparison doesn't block the round** — `template/.claude/skills/factory/probe.mjs:719-721`, `template/.claude/skills/factory/round.mjs:490`\n   Problem: when `head.ok` is false and the base can't be prepared (dependency files changed with no `setup`, or checkout failed), `skip(..., 'error')` returns `status: 'error'`. `prepareRound` only blocks when `probe.status === 'ran'`, so the round goes to the reviewers as \"Not run … Review from the diff\" even though the commit's app doesn't start. AC3 says a change that breaks startup blocks. AC2 says what can't be compared is reported as unverified. Here the reviewers aren't given a startup-failure item to answer, so the result is neither.\n   Required change: for a head that doesn't start where the base is unavailable, either record an `unverified` `app-start` finding (so a U item exists for the reviewers to answer), or block explicitly. Test whichever you choose.\n\n## Coverage\n- Read: `template/.claude/skills/factory/probe.mjs`, `template/.claude/skills/factory/worktree.mjs`, `template/.claude/skills/factory/round.mjs` (diff), `template/.claude/skills/factory/runner.mjs` (diff), `template/factory/config.json`, `src/util.js`, `package.json`, `test/probe.test.js`, `test/worktree.test.js`, `test/round.test.js`, `test/runner.test.js` (test names, and the probe-related tests as listed by grep).\n- Not read: `README.md`, `SPEC.md`, `template/.claude/agents/*`, `template/.claude/skills/factory/SKILL.md`, `template/.claude/skills/factory/reviewer-contract.md`, `test/evals.test.js`, `test/evals/*`, `test/fixtures/fake-claude.mjs`. These are prose/benchmark files, or I ran out of budget for them.\n\n## Previous findings\nNone (first review).\n\n## Suggestions (non-blocking)\n- `addedLines` (`round.mjs:165`) treats any `+++ ` line after a `--- ` line as a file header. A removed line `-- x` followed by an added line `++ y` in `-U0` output would be misread. `numberDiff` guards this with `n === null`; use the same guard (reset on `diff --git`).\n- `slug()` in `probe.mjs:451` can map different paths to the same screenshot file (`/a/b` and `/a-b`), and one overwrites the other. Add a short hash or the visit index.\n- `probeIds` counts any mention of an ID anywhere under `## Probe findings` as an answer, including prose that merely names it. Consider requiring the ID at the start of a bullet.\n- `freePort` closes the socket before the server binds, so another process could take the port in between. This is rare and the retry path covers it.\n",
+          "repo": null
+        }
+      }
+    }
+  ],
+  "rescored": "2026-11-17T09:42:30.335Z"
+}

@@ -515,6 +515,37 @@ number is the mean, with the range across runs in brackets. Results go to
 a run as the baseline, and compare the next one after a prompt change with the same
 variant. The gap between `probe-on` and `probe-off` is what the probe adds.
 
+### The code reviewer
+
+`npm run eval:code-reviewer` measures `factory-review-code` against real defects
+instead of planted ones. Each case in `test/evals/code/cases.json` is a commit GitHub
+Copilot reviewed on one of this repo's PRs, with the problems it raised there that
+were confirmed and fixed afterwards: 25 across PRs #8, #9 and #12. Most are the kind
+a diff read misses: a crash between two steps, a lock race, a check that passes when
+it should fail, two inputs that map to one file name.
+
+```
+npm run eval:code-reviewer                                # 3 runs, every case
+npm run eval:code-reviewer -- --runs 1 --cases pr9-runner-progress --models sonnet,opus
+```
+
+A run rebuilds each case as a factory job (main is the PR's merge base, the job
+branch adds the reviewed commit's change) and runs the code reviewer on round 1,
+with a spec and build notes in `test/evals/code/jobs/` that say only what the PR set
+out to do. It needs this repo's full history, so not a shallow clone.
+
+**Cost:** a run is three reviews: about $0.90 on Sonnet and $3.70 on Opus at API
+prices, so the default 3 runs are about $2.70 or $11.
+
+**Scoring** is the same `file:line` matching, plus each defect's `terms`: a finding
+that cites a defect's lines finds it only if it also uses one of them, so "no tests
+for `probe.mjs:590-735`" doesn't find every defect in that range. It prints recall
+per case and overall, blocking findings that match no known defect (false positives,
+or real problems Copilot didn't raise: read them in the results file), how often
+each defect was found, and cost. Results go to
+`test/evals/results/<date>-code-<model>.json`. After changing the cases or the
+scorer, `--rescore <results.json>` scores the saved reviews again with no new runs.
+
 ## Tips
 
 - Agents run many shell commands (tests, git). Allowing your test and git commands

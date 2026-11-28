@@ -1,0 +1,514 @@
+{
+  "date": "2026-11-17T09:24:31.436Z",
+  "variant": "code-sonnet",
+  "model": "sonnet",
+  "runs": 3,
+  "cases": [
+    "pr8-headless-runner",
+    "pr9-runner-progress",
+    "pr12-ui-probe"
+  ],
+  "summary": {
+    "cases": {
+      "pr8-headless-runner": {
+        "defects": 12,
+        "recall": {
+          "mean": 0.05555555555555555,
+          "min": 0,
+          "max": 0.08333333333333333
+        },
+        "blocking": {
+          "mean": 3.3333333333333335,
+          "min": 3,
+          "max": 4
+        },
+        "unmatched": {
+          "mean": 2.6666666666666665,
+          "min": 2,
+          "max": 3
+        },
+        "cost": {
+          "mean": 0.3261,
+          "min": 0.2636,
+          "max": 0.3965
+        }
+      },
+      "pr9-runner-progress": {
+        "defects": 2,
+        "recall": {
+          "mean": 0.16666666666666666,
+          "min": 0,
+          "max": 0.5
+        },
+        "blocking": {
+          "mean": 3.3333333333333335,
+          "min": 3,
+          "max": 4
+        },
+        "unmatched": {
+          "mean": 3,
+          "min": 2,
+          "max": 4
+        },
+        "cost": {
+          "mean": 0.167,
+          "min": 0.1518,
+          "max": 0.1763
+        }
+      },
+      "pr12-ui-probe": {
+        "defects": 11,
+        "recall": {
+          "mean": 0.0909090909090909,
+          "min": 0,
+          "max": 0.18181818181818182
+        },
+        "blocking": {
+          "mean": 3,
+          "min": 2,
+          "max": 4
+        },
+        "unmatched": {
+          "mean": 2,
+          "min": 2,
+          "max": 2
+        },
+        "cost": {
+          "mean": 0.3625333333333334,
+          "min": 0.3174,
+          "max": 0.4323
+        }
+      }
+    },
+    "defects": 25,
+    "recall": {
+      "mean": 0.08,
+      "min": 0.04,
+      "max": 0.12
+    },
+    "cost": {
+      "mean": 0.8556333333333334,
+      "min": 0.7778,
+      "max": 0.9234
+    },
+    "hits": {
+      "runner-probe-misses-job-locks": 0,
+      "backlog-append-unlocked": 0,
+      "stale-lock-takeover-race": 0,
+      "abort-after-acquire": 0,
+      "detached-agents-outlive-lock": 0,
+      "ship-deletes-branch-first": 0,
+      "record-commit-failure-ignored": 0,
+      "backlog-ticked-before-job": 1,
+      "job-flag-without-value": 0,
+      "approve-outside-job-lock": 0,
+      "resume-loses-verdicts": 0,
+      "queued-check-starts-after-abort": 1,
+      "activity-cleanup-throws": 0,
+      "stale-activity-never-expires": 1,
+      "probe-urls-leak-secrets": 0,
+      "tab-trap-first-stop": 0,
+      "dep-guard-ignores-uncommitted": 0,
+      "app-start-no-finding": 0,
+      "diff-path-quoting": 1,
+      "numbered-diff-drops-modes": 0,
+      "axe-truncated-before-compare": 0,
+      "screenshot-name-collision": 2,
+      "max-visits-drops-states": 0,
+      "existing-link-skips-ignore-check": 0,
+      "lines-gate-fails-open": 0
+    }
+  },
+  "results": [
+    {
+      "cases": {
+        "pr8-headless-runner": {
+          "verdict": "CHANGES",
+          "blocking": 3,
+          "matched": 0,
+          "precision": 0,
+          "recall": 0,
+          "found": [],
+          "foundInLane": [],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 3,
+          "ok": true,
+          "error": null,
+          "cost": 0.3965,
+          "tokens": 267807,
+          "seconds": 92,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr8-headless-runner, round 1\n\n## Summary\nThe loop, locks, harness and CLI wiring are solid and the end-to-end fake-claude tests cover criteria 1–4, 6 and 8 well. Three defects remain: acceptance criterion 7 has no test, a missing `maxParallelChecks` deadlocks every job, and `rework` on a job whose spec was never written skips the spec.\n\n## Blocking\n1. **Criterion 7 (`maxParallelChecks`) has no test** — `test/runner.test.js` (none); logic at `template/.claude/skills/factory/runner.mjs:646-658`\n   Problem: nothing exercises `limiter` or `ctx.checks`. The slot hand-off (`active` is not decremented when a waiter is woken) is subtle, and breaking it would not fail any test. Every run in the tests uses the default of 1, with two jobs, but never asserts that checks don't overlap, and never runs with a limit of 2.\n   Required change: add a test that fails if the limit is wrong. For example, export `limiter` and assert that with max 1 or 2 no more than that many callbacks run at once, and that all callbacks finish. Or run `run --parallel 2` with a slow `checks` command and assert the check windows don't overlap at `maxParallelChecks: 1`.\n\n2. **A missing `runner.maxParallelChecks` deadlocks every job at the checks step** — `runner.mjs:727` and `:733`\n   Problem: the defaults merged at line 727 include `harness`, `parallel` and `permissionMode` but not `maxParallelChecks`. If `file.runner` lacks it, `Math.max(1, undefined)` is `NaN`. `limiter(NaN)` then never satisfies `active < max`, so the first `ctx.checks` call waits forever on a promise nobody resolves. The runner hangs with no message, and Ctrl+C can't interrupt the wait. The same NaN comes from any non-numeric value. A `parallel` of `0` in config makes `runAll` report \"nothing left to run\" without running anything (`runner.mjs:743`, `:627`).\n   Required change: add `maxParallelChecks: 1` to the defaults at line 727. Validate `parallel` and `maxParallelChecks` as whole numbers of 1 or more, failing with a clear error otherwise. Add a test for a config that has no `maxParallelChecks`.\n\n3. **`rework` on a job that failed at the spec step skips the spec** — `runner.mjs:765`\n   Problem: when the spec-writer writes no spec, `needsHuman` is called at stage `spec` (`runner.mjs:249`). `rework` then always sets `stage: 'build'`. `nextAction` creates the worktree and runs the builder (`runner.mjs:111-113`) with `Spec: .../spec.md` pointing at a file that doesn't exist. The human's note goes to a builder that has no spec. The same applies to any job with no `spec.md`.\n   Required change: in `rework`, return the job to `spec` when `spec.md` doesn't exist (`paths(root, job).spec`), and to `build` otherwise. Save the human note where the spec-writer reads it, or refuse the rework with \"no spec.md; run the job again\". Add a test for the case.\n\n## Coverage\n- Read: README.md, SPEC.md (docs; skimmed for claims only), bin/cli.js, package.json, src/run.js, src/util.js, template/.claude/skills/factory/SKILL.md (diff), board.mjs, harness/claude-code.mjs, runner.mjs, usage.mjs, template/factory/config.json, test/board.test.js, test/cli.test.js, test/fixtures/fake-claude.mjs, test/runner.test.js\n- Not read: None.\n\n## Suggestions (non-blocking)\n- The backlog item is ticked off before the job is added to the board (`runner.mjs:529-531`). A SIGKILL between the two loses the item. Creating the job inside the claim callback would close the gap.\n- No test covers the GitHub task source, `shipPr` or the `onApprove: 'pr'` path (only `prBody` is tested). Those paths shell out to `gh` and could use a fake `gh`.\n- `recordRun` ignores `round` when it uses a transcript (`usage.mjs:175`). That is fine if `recordAgent` reads the round from the prompt, but it is worth a comment.\n- The \"killed runner\" test doesn't assert that the hung fake agent process is gone. Checking its pid would back up criterion 5. In-flight checks being killed on Ctrl+C is not tested either.\n",
+          "repo": null
+        },
+        "pr9-runner-progress": {
+          "verdict": "CHANGES",
+          "blocking": 4,
+          "matched": 0,
+          "precision": 0,
+          "recall": 0,
+          "found": [],
+          "foundInLane": [],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 4,
+          "ok": true,
+          "error": null,
+          "cost": 0.1518,
+          "tokens": 121499,
+          "seconds": 32,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n# Code review — pr9-runner-progress, round 1\n\n## Summary\nThe streaming harness, per-tool-call log lines, activity file and dashboard card are implemented and follow the spec's shape. Three acceptance criteria have no test that would fail if the code were wrong, and a failed agent gets no finish line.\n\n## Blocking\n1. **\"Still working\" line (AC2) is untested** — `template/.claude/skills/factory/runner.mjs:30`, `:737-746`\n   Problem: `QUIET_MS` is a hard-coded 60s and nothing exercises `heartbeat()`. The fake claude emits one tool call and returns at once. Nothing checks the `still working (<duration>; last: <call>)` text, or that the quiet timer resets on a tool call.\n   Required change: make the intervals testable (for example `config.runner` overrides, or an exported `heartbeat` taking its clock). Add a test where a step stays quiet past the threshold and the `still working (…; last: …)` line is printed. Also assert that it isn't printed when tool calls keep arriving.\n\n2. **15s activity rewrite (AC4) is untested** — `runner.mjs:29`, `:717`, `:737-745`\n   Problem: the \"killed runner\" test only checks the file exists once, with the right pid and steps. Nothing shows the file is rewritten while a step runs, which is the property the dashboard's 60s staleness check relies on. If the `setInterval` were removed, every test would still pass.\n   Required change: with a shortened heartbeat, assert that `updatedAt` in `factory/activity/<id>.json` advances while the builder hangs. Also cover a `note()` update (`last` and `lastAt` change after a tool call).\n\n3. **Dashboard staleness rule (AC5) is untested** — `template/factory/dashboard.html:355-360`\n   Problem: `activityOf()` hides a file older than 60s and ignores activity for non-active stages. No test covers either rule. `pollActivity` also skips `render()` when the file text is unchanged, so a crashed runner's card disappears only on the 30s `setInterval` render (`:899`). That interval doesn't run while a drawer is open.\n   Required change: add a test for the stale and fresh cases (a unit test of `activityOf`, or a DOM test of the dashboard). Also confirm that a stale file clears the card without waiting on an unrelated re-render, or document why the 30s tick is enough.\n\n4. **No finish line when an agent fails** — `runner.mjs:237-240`\n   Problem: AC3 says \"each agent ends with how long it took and its one-line reply\". The finish line prints only when `result.ok` and the run wasn't aborted. A failed or non-zero agent ends with nothing about how long it took, even though `result.error` and its duration are known.\n   Required change: print a finish line for a non-aborted failure too (for example `builder failed after 3m: <error>`), and test it with the fake claude failing.\n\n## Coverage\n- Read: README.md, SPEC.md (skimmed in diff only for doc content), src/util.js, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs, template/factory/dashboard.html, test/fixtures/fake-claude.mjs, test/runner.test.js\n- Not read: None.\n\n## Suggestions (non-blocking)\n- `begin()` is called with positional `(ctx, id, name, model, last)`. An options object would read better at the checks call site (`begin(ctx, id, 'checks', null, names.join(', '))`).\n- The elapsed-time formatter is duplicated between `runner.mjs` (`elapsed`) and `dashboard.html` (`since`). That is acceptable, since the dashboard is a standalone file, but worth a comment.\n- `describe()` in the harness is exported only for the test. That is fine.\n",
+          "repo": null
+        },
+        "pr12-ui-probe": {
+          "verdict": "CHANGES",
+          "blocking": 3,
+          "matched": 1,
+          "precision": 0.3333333333333333,
+          "recall": 0.09090909090909091,
+          "found": [
+            "screenshot-name-collision"
+          ],
+          "foundInLane": [
+            "screenshot-name-collision"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [
+                "screenshot-name-collision"
+              ],
+              "controls": []
+            }
+          ],
+          "unmatched": 2,
+          "ok": true,
+          "error": null,
+          "cost": 0.3174,
+          "tokens": 230402,
+          "seconds": 56,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr12-ui-probe, round 1\n\n## Summary\nThe design covers the spec and the pure helpers are well tested. But the core probe paths behind criteria 2, 3, 5 and 6 (base comparison, startup break, dependency-file refusal, Tab walk) have no test that would fail if they were wrong. Two real defects were also found: `addedLines` can misparse a diff, and screenshot names can collide.\n\n## Blocking\n1. **No test for the probe's end-to-end behaviour (criteria 2, 3, 5, 6, 4)** — `test/probe.test.js` (all 10 tests), `template/.claude/skills/factory/probe.mjs:634-735`\n   Problem: the tests cover only `parseScreens`, `planVisits`, `findingsOf`, `compareWithBase`, `renderProbe`, `laneOf`, `numbered`, `reviewGaps` and `probeIds`. Nothing exercises `runProbe`, `withServer`, `baseCheckout` or `tabWalk`. So these have no failing test if they break:\n   - app-start failure blocks (criterion 3, `probe.mjs:719-727`);\n   - a change to dependency files with no `worktree.setup` is reported unverified (criterion 5, `probe.mjs:590-594`);\n   - a problem already on the merge base is not new (criterion 2), end to end;\n   - a screenshot is taken per visit (criterion 4);\n   - Tab order, focus visibility and traps are recorded (criterion 6, `probe.mjs:453-471`).\n   `round.test.js:183` uses a stand-in probe.\n   Required change: add tests of `runProbe` against a small fixture repo with a stub `ui.serve` (a tiny node http server). If Playwright can't be assumed, inject the browser and loader so the branches run. Cover at least: the app starting on the base but not on the head gives an `app-start` failure; a dependency-file change with no setup gives `unverified`; a pre-existing failure gives `pre-existing`; a tab walk with a trap and an invisible focus.\n\n2. **`addedLines` misparses a diff when a removed line starts with `--` and an added line starts with `++`** — `template/.claude/skills/factory/round.mjs:165-166`\n   Problem: a file header is recognised by `+++ ` after a `--- ` line, with no check that it's outside a hunk. Inside a hunk, a removed `-- x` (SQL or Lua comment, `---` rule) followed by an added `++i;` (`++ …`) reads as a header. `file` becomes null and every later added line in that diff is silently dropped. This affects `scope: \"lines\"` gates (`parseChangedLines`, so real new problems are treated as older and don't block) and `round.mjs grep`. `numberDiff` already guards this with `n === null`.\n   Required change: track \"in header\" (reset on `diff --git `, as `numberDiff` does) and only treat `---`/`+++` as headers there. Add a test with such a hunk.\n\n3. **Screenshot file names can collide** — `template/.claude/skills/factory/probe.mjs:451,504`\n   Problem: `slug()` collapses every non-alphanumeric run, so `/items/1` and `/items-1`, or `/a?x=1` and `/a/x/1`, map to the same file. The later visit overwrites the earlier one, and `check-review` (`probe.mjs:332`) then accepts a review that viewed only one of two distinct screens. The contract's own example name ends in a hash (`…-3f9a1c2e.png`), which suggests the intent.\n   Required change: add a short hash of the visit `key` to the file name, and add a test that two colliding paths get distinct files.\n\n## Coverage\n- Read: README.md, SPEC.md (skimmed; docs, outside the code lane), package.json, src/util.js, template/factory/config.json, template/.claude/skills/factory/probe.mjs, round.mjs, runner.mjs, worktree.mjs, test/worktree.test.js, test/probe.test.js (test list and structure), test/round.test.js (test list and probe/gate tests), test/fixtures/fake-claude.mjs\n- Not read (agent and skill prose, other lanes or not code): template/.claude/agents/*.md, SKILL.md, reviewer-contract.md, test/evals.test.js, test/evals/run.mjs, test/evals/score.mjs, test/runner.test.js (diff not read in detail)\n\n## Suggestions (non-blocking)\n- `runner.mjs` worktree action: `JSON.parse(out.stdout…)` would throw on malformed output. Wrapping it so it routes to `needsHuman` would be tidier.\n- `runCheck` with `scope: \"lines\"` forces exit 0 when only older problems parse, even if the linter also printed unparseable errors (e.g. a config crash). Consider requiring that all non-empty output lines were classified.\n",
+          "repo": null
+        }
+      }
+    },
+    {
+      "cases": {
+        "pr8-headless-runner": {
+          "verdict": "CHANGES",
+          "blocking": 3,
+          "matched": 1,
+          "precision": 0.3333333333333333,
+          "recall": 0.08333333333333333,
+          "found": [
+            "backlog-ticked-before-job"
+          ],
+          "foundInLane": [
+            "backlog-ticked-before-job"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [
+                "backlog-ticked-before-job"
+              ],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 2,
+          "ok": true,
+          "error": null,
+          "cost": 0.3182,
+          "tokens": 239050,
+          "seconds": 58,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr8-headless-runner, round 1\n\n## Summary\nThe loop, locks and harness are well built, and the end-to-end tests with a fake claude cover most criteria. Three defects block: criterion 7 has no test, a backlog item can be lost if the runner is killed mid-claim, and `rework` of a job that failed at the spec stage sends the builder in with no spec.\n\n## Blocking\n1. **Criterion 7 (`maxParallelChecks`) has no test** — `template/.claude/skills/factory/runner.mjs:646-658`, `:733`\n   Problem: `limiter` is the only thing enforcing \"at most N jobs run checks at once\". Nothing in `test/runner.test.js` or `test/board.test.js` exercises it, and the e2e test uses the default of 1 with a fake whose checks are `true`. The slot hand-off logic (`active` not decremented when a waiter is handed the slot) would not be caught if broken. Also, a non-numeric `maxParallelChecks` gives `NaN`, so `active < NaN` is always false and every check waits forever.\n   Required change: export `limiter` (or test through the CLI with a slow check) and add a test that, with a limit of 1 and then 2, starts several jobs and asserts the number running at once never exceeds the limit and that all of them finish. Coerce the configured value to a whole number of at least 1.\n\n2. **A backlog item is lost if the runner dies between claiming it and creating the job** — `runner.mjs:526-533`, `board.mjs:186-199`\n   Problem: `claimBacklogItem` ticks the item `- [x] … (job id)` and creates `factory/jobs/<id>/`. `createJob` writes request.md and adds the job to the board only afterwards. A kill (or a write error) in between leaves a ticked item and an empty job folder with no board entry. `runAll` adopts jobs only from the board, so a rerun never resumes it, and the backlog no longer lists it. This breaks criterion 2 (resume from files) and loses the request. The GitHub path has the same gap between `claimJobId` and `createJob`.\n   Required change: make the claim and the job creation one recoverable step. For example, write request.md and the board entry inside `claimBacklogItem`'s lock, before ticking the item. Or have `runAll` adopt job folders that have a request.md but no board entry. Add a test for the interrupted claim.\n\n3. **`rework` on a job that failed at the spec stage runs the builder with no spec** — `runner.mjs:751-767`, `:245-251`\n   Problem: if the spec-writer writes no spec, `needsHuman` is called with `round: 0` and no spec.md. `rework` unconditionally sets `stage: 'build'`. `nextAction` then creates the worktree and runs the builder (`first`/`rework`) against a `Spec:` path that doesn't exist. The human's note goes to a builder that has no spec to build from. The stage the job stopped in isn't remembered.\n   Required change: in `rework`, if `spec.md` doesn't exist, send the job back to stage `spec` (the note could be appended to request.md) instead of `build`, or refuse with a clear message. Add a test.\n\n## Coverage\n- Read: README.md and SPEC.md (skimmed, docs only), bin/cli.js, package.json, src/run.js, src/util.js, template/.claude/skills/factory/SKILL.md (diff), board.mjs, harness/claude-code.mjs, runner.mjs, usage.mjs, template/factory/config.json, test/runner.test.js, test/fixtures/fake-claude.mjs, test/board.test.js and test/cli.test.js (test list and the relevant tests)\n- Not read: None.\n\n## Suggestions (non-blocking)\n- Criterion 5 is tested by SIGTERM only. `SIGINT` shares the same handler, but nothing asserts that a running check is killed, so consider a test for that.\n- `RUNNER_COMMANDS` in `bin/cli.js` and the command list in `runner.mjs:717` repeat the same set. The CLI could pass every command through and let the runner reject unknown ones.\n",
+          "repo": null
+        },
+        "pr9-runner-progress": {
+          "verdict": "CHANGES",
+          "blocking": 3,
+          "matched": 0,
+          "precision": 0,
+          "recall": 0,
+          "found": [],
+          "foundInLane": [],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 3,
+          "ok": true,
+          "error": null,
+          "cost": 0.1729,
+          "tokens": 183549,
+          "seconds": 35,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n# Code review — pr9-runner-progress, round 1\n\n## Summary\nThe implementation covers the criteria, but two behaviours in criteria 2 and 5 have no test. The finish line is also skipped when an agent fails.\n\n## Blocking\n1. **No test for the \"still working\" line (criterion 2)** — `template/.claude/skills/factory/runner.mjs:263-272`\n   Problem: `heartbeat()` is the only code that prints `still working (<duration>; last: <call>)`. It is also the only code that rewrites the activity file every 15s (criterion 4). No test reaches it. `test/runner.test.js` only checks the tool-call line, the finish line, the first activity write and cleanup. The fake agent finishes immediately, so the quiet path, the `last:` text and the 15s rewrite never run. The intervals (`HEARTBEAT_MS`, `QUIET_MS`) are hard-coded constants, so a test can't reach them.\n   Required change: make the intervals overridable, for example through an env var or `config.runner`. Add a test with a fake agent that stays quiet past the shortened quiet interval. It should assert the `still working (…; last: …)` line, and that `updatedAt` in the activity file changes between reads.\n\n2. **No test for the dashboard staleness rule (criterion 5)** — `template/factory/dashboard.html:330-334`\n   Problem: \"shows nothing for a file more than 60s old\" is the crashed-runner guarantee. It is implemented in `activityOf`, but nothing tests it or the card rendering.\n   Required change: add a test for `activityOf`'s staleness and stage filter, either by extracting it into a testable module or by loading the dashboard in an existing harness. If the repo has no way to test the dashboard, state that in build.md and cover the rule some other way.\n\n3. **Failed agents get no finish line (criterion 3)** — `template/.claude/skills/factory/runner.mjs:176-179`\n   Problem: `ctx.log(... finished in ...)` runs only when `!signal.aborted && result.ok`. Criterion 3 says \"each agent ends with how long it took and its one-line reply\". A failed agent, which is the case where the duration matters most, prints nothing from this path. The error is reported elsewhere, without a duration.\n   Required change: also log the duration when the agent fails, for example `builder failed after 3m: <error>`. Add a test, for instance a fake agent that exits with an error.\n\n## Coverage\n- Read: README.md, SPEC.md (diff only), src/util.js, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs, template/factory/dashboard.html, test/fixtures/fake-claude.mjs, test/runner.test.js. For the dashboard I also read the `poll` and render-interval code.\n- Not read: None.\n\n## Suggestions (non-blocking)\n- The dashboard re-renders when `activity` changes or on its 30s timer, and the timer is skipped while a drawer is open. A stale card can therefore stay visible for up to about 90s. A render is already scheduled in `pollActivity`, so this is acceptable.\n- `still working` fires 60–75s after the last call, because the heartbeat ticks every 15s. This is fine for the spec.\n",
+          "repo": null
+        },
+        "pr12-ui-probe": {
+          "verdict": "CHANGES",
+          "blocking": 4,
+          "matched": 2,
+          "precision": 0.5,
+          "recall": 0.18181818181818182,
+          "found": [
+            "diff-path-quoting",
+            "screenshot-name-collision"
+          ],
+          "foundInLane": [
+            "diff-path-quoting",
+            "screenshot-name-collision"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "diff-path-quoting"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [
+                "screenshot-name-collision"
+              ],
+              "controls": []
+            }
+          ],
+          "unmatched": 2,
+          "ok": true,
+          "error": null,
+          "cost": 0.4323,
+          "tokens": 360466,
+          "seconds": 96,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr12-ui-probe, round 1\n\n## Summary\nMost of the design is sound: base comparison, lane ownership, review checking, worktree link refusal and the numbered diff. Two real defects need fixing. A `scope: \"lines\"` gate fails open for file names with spaces or non-ASCII characters. Two acceptance criteria (3 and 5) have no test.\n\n## Blocking\n1. **Line-scoped gate fails open on file names git quotes or tab-pads** — `template/.claude/skills/factory/round.mjs:165-166` (`addedLines`), also `:199-201` (`numberDiff`)\n   Problem: git ends `+++ b/a b.txt` with a trailing TAB when the name has a space. It prints non-ASCII names quoted, as `+++ \"b/\\303\\251.txt\"`. I confirmed both with `git diff -U0`. `addedLines` takes `line.slice(6)` unchanged, so the file key becomes `a b.txt\\t`. A quoted name fails the `startsWith('+++ b/')` test and the file becomes `null`. `changeIn().lines` then has no entry for the real path. `splitProblems` (`:263-264`) files every problem on that file under `older`, so the gate exits 0 even when the change added the problem. Acceptance criterion 7 is broken for these files. `numberDiff` also prints `=== name<TAB>` and `=== \"b/...\"` headers. `addedLines` also accepts a `+++ ` header whenever the previous line starts with `--- `. That includes a removed `-- x` line followed by an added `++ y` line in the middle of a hunk. `numberDiff` guards against this with `n === null`, but `addedLines` doesn't. That mid-hunk case sets `file = null` and drops the rest of that file's added lines.\n   Required change: run the `-U0` diff used for line numbers with `-c core.quotepath=false`, and strip a trailing TAB from the `+++` path. Only accept a file header outside a hunk, as `numberDiff` does. Add a test with a file name containing a space and one with a non-ASCII name, checking that `parseChangedLines` and a `scope: \"lines\"` gate see their added lines.\n\n2. **No test for acceptance criterion 3 (app startup break blocks) or the `runProbe` flow** — `test/probe.test.js` (whole file), `probe.mjs:695-731`\n   Problem: `probe.test.js` tests only the pure helpers. Nothing runs `runProbe`. A head server that won't start while the base serves should produce the `app-start` failure with `origin: 'new'`. If the base can't serve either, the status should be `error`. None of this is exercised. The `round.test.js` probe test stubs the probe out.\n   Required change: add a `runProbe` test over a temp repo with fake `playwright` and `axe-core` modules, or a stubbed browser. It should cover a serve command that exits on the branch but works on the merge base, and a serve command that fails on both.\n\n3. **No test for acceptance criterion 5 (dependency-file change with no `worktree.setup` is unverified)** — `probe.mjs:590-594` (`baseCheckout`, `DEP_FILES`)\n   Problem: the refusal path and its `baseNote` are untested. So are base-checkout cleanup, the `node_modules` borrow and the `compareWithBase(…, null)` result that follows. Nothing would fail if the `DEP_FILES` check were removed.\n   Required change: add a test where the change edits `package.json` or a lockfile and `worktree.setup` is unset. It should assert that `baseNote` is set, that failures are `unverified` and that the round isn't blocked. Add a case with `setup` set that does compare against the base.\n\n4. **Screenshot file names can collide, so two visits share one image** — `probe.mjs:451` and `:504`\n   Problem: `slug` collapses every non-alphanumeric run to `-`. `/users/1` and `/users-1`, or `/a?x=1` and `/a/x/1`, produce the same file name. Likewise states `a b` and `a-b`. The later visit overwrites the earlier screenshot. `reviewGaps` matches screenshots by base name (`:332`), so a single listing satisfies both visits, and the reviewer may be looking at the wrong page. The reviewer-contract example (`billing-default-320-light-3f9a1c2e.png`) already shows a hash suffix, but the code doesn't add one.\n   Required change: add a short hash of `v.key` to the file name, or otherwise make it unique per key. Add a test that two colliding keys get different files.\n\n## Coverage\n- Read: `template/.claude/skills/factory/probe.mjs`, `worktree.mjs`, `round.mjs` (diff and surrounding code), `runner.mjs` (diff), `template/factory/config.json`, `src/util.js`, `package.json`, `test/probe.test.js`, `test/worktree.test.js`, and the `test/round.test.js` probe test and its test list. The `test/runner.test.js` and `test/evals.test.js` test lists were also checked.\n- Not read: `README.md`, `SPEC.md`, the `template/.claude/agents/*` and `SKILL.md`/`reviewer-contract.md` prose, `test/evals/*`, `test/fixtures/fake-claude.mjs`, and the bodies of `test/round.test.js`, `test/runner.test.js` and `test/evals.test.js` beyond what's listed above. They are prose or fixtures outside my lane, or I only checked that tests exist for the behaviour I traced.\n\n## Suggestions (non-blocking)\n- `probeIds` expands `W1–W99999999` into a loop of that size (`probe.mjs:307-309`). Cap range length.\n- `withServer` stops the server with SIGTERM only (`:536`). A server that ignores it keeps the port; consider a SIGKILL fallback.\n- `withServer` reports an exception from inside `fn`, such as `browser.newContext` failing, as \"the app didn't start\". Separate the two so the message is accurate.\n- `runner.mjs:306` calls `JSON.parse` on the worktree script's last stdout line without a guard. A malformed line throws instead of reaching `needsHuman`.\n",
+          "repo": null
+        }
+      }
+    },
+    {
+      "cases": {
+        "pr8-headless-runner": {
+          "verdict": "CHANGES",
+          "blocking": 4,
+          "matched": 1,
+          "precision": 0.25,
+          "recall": 0.08333333333333333,
+          "found": [
+            "queued-check-starts-after-abort"
+          ],
+          "foundInLane": [
+            "queued-check-starts-after-abort"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "queued-check-starts-after-abort"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 4,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 3,
+          "ok": true,
+          "error": null,
+          "cost": 0.2636,
+          "tokens": 162665,
+          "seconds": 59,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n# Code review — pr8-headless-runner, round 1\n\n## Summary\nThe loop, locks and resume logic are mostly sound, but Ctrl+C can leave a check running (acceptance criterion 5), a rework note can be silently ignored, and criteria 5 and 7 have no tests.\n\n## Blocking\n1. **Abort before spawn leaves children running** — `template/.claude/skills/factory/runner.mjs:662-677`, `template/.claude/skills/factory/harness/claude-code.mjs:96-113`\n   Problem: both `runNode` and the harness's `run` only add an `abort` listener. An already-aborted signal never fires it. With `maxParallelChecks` below the number of jobs, jobs wait in `limiter` (`runner.mjs:646-658`). On Ctrl+C the running check is killed and its slot is handed to a waiter. That waiter calls `runNode` with an aborted signal, and it spawns a detached `round.mjs` with no time limit that nothing kills. The same happens if an abort lands before an agent spawns. `runner.mjs:310` only calls `throwIfAborted` after the check finishes.\n   Required change: in `runNode` and the harness `run`, do not spawn when `signal.aborted` (reject or resolve as aborted). Alternatively call `signal.throwIfAborted()` inside the limiter before `fn()`.\n\n2. **Rework note ignored if the builder already wrote its response** — `template/.claude/skills/factory/runner.mjs:112` (with `perform` build `done`, lines 273-277)\n   Problem: a `review` or `checkfix` build step passes `done` only when the head changed and `responded` holds. If the builder appends `## Round n response` but makes no commit, the job goes to needs-human. `rework <id> <note>` then writes `human.md` into round n, but `nextAction` tests `f.human && !f.responded`. `responded` is already true, so it returns `round n+1` and the human's note is never given to the builder. The job moves on with no change.\n   Required change: make the rework request take effect whatever the response state. For example, record `runner.reworkPending` on the job in `rework` and have `nextAction` honour it, or compare the `human.md` mtime against the response. Add a test.\n\n3. **No test for Ctrl+C (criterion 5)** — `test/runner.test.js`\n   Problem: no test sends SIGINT or aborts, or checks that agents and checks are stopped and locks released. `FAKE_BUILDER_HANG` exists, but the only use I could find is the killed-runner resume test. Finding 1 would have been caught by such a test.\n   Required change: add a test that aborts or SIGINTs a runner mid-agent and mid-check, and asserts that no child survives and the job resumes.\n\n4. **No test for `maxParallelChecks` (criterion 7)** — `test/runner.test.js`, `runner.mjs:646`\n   Problem: `limiter` has no test. The hand-over logic (`active` is not re-counted) is easy to get wrong.\n   Required change: add a test that checks at most N run at once, and that waiters proceed in order.\n\n## Coverage\n- Read: README.md, SPEC.md and SKILL.md (diff stat only; docs are outside my lane), bin/cli.js, package.json, src/run.js, src/util.js, template/.claude/skills/factory/board.mjs, harness/claude-code.mjs, runner.mjs, usage.mjs, template/factory/config.json, and the test names and fake-claude fixture (test/board.test.js, test/cli.test.js, test/runner.test.js, test/fixtures/fake-claude.mjs).\n- Not read: README.md, SPEC.md and SKILL.md prose in detail; test bodies only skimmed by name.\n\n## Suggestions (non-blocking)\n- If the runner dies between `claimBacklogItem` (ticks the item and makes the folder) and `createJob`, the item is ticked but no board entry exists. Consider creating the job entry inside the claim.\n- Abort sends only SIGTERM. Consider escalating to SIGKILL after a grace period.\n",
+          "repo": null
+        },
+        "pr9-runner-progress": {
+          "verdict": "CHANGES",
+          "blocking": 3,
+          "matched": 1,
+          "precision": 0.3333333333333333,
+          "recall": 0.5,
+          "found": [
+            "stale-activity-never-expires"
+          ],
+          "foundInLane": [
+            "stale-activity-never-expires"
+          ],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [
+                "stale-activity-never-expires"
+              ],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 3,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 2,
+          "ok": true,
+          "error": null,
+          "cost": 0.1763,
+          "tokens": 184539,
+          "seconds": 33,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr9-runner-progress, round 1\n\n## Summary\nThe harness streaming, the runner's log lines and the activity file all trace correctly. The dashboard's 60s staleness rule (criterion 5) doesn't work for a crashed runner, because nothing re-renders once the file stops changing. That rule has no test either.\n\n## Blocking\n1. **A crashed runner's activity stays on the card indefinitely** — `template/factory/dashboard.html:507` (`activityOf`, line 356), `:586-598` (`pollActivity`), `:602`\n   Problem: Staleness is checked only inside `activityOf`, which runs during `render()`. `poll()` calls `render()` only when the activity JSON text, the usage text or the board text changes. After a runner crash, the file is not rewritten and the board doesn't change. `pollActivity` then returns false every tick, nothing re-renders, and the old \"Running now\" rows (with a frozen duration) stay on screen. This breaks criterion 5: \"a crashed runner leaves nothing showing\". It only clears after an unrelated board change or a reload.\n   Required change: Make staleness part of what `pollActivity` compares or triggers on. For example, build `next` with stale entries dropped (or compare the visible/not-visible state per job), so the transition from fresh to stale changes `activityText` and re-renders. Alternatively, re-render on a timer while any activity is showing.\n\n2. **No test covers the dashboard half of criterion 5 or the 60s \"still working\" line (criterion 2)** — `test/runner.test.js`\n   Problem: The tests cover `describe`, the per-tool-call line, the finish line, the activity file while running and its removal at the end. Nothing exercises the stale-file rule (the bug in #1 would have been caught by it) or the `still working (<duration>; last: <call>)` line from `heartbeat`. `QUIET_MS` and `HEARTBEAT_MS` are hard-coded constants, so the line can't be tested without 60s of waiting.\n   Required change: Add a test for the \"still working\" line (for example, make the thresholds overridable via env or an exported function and test `heartbeat` directly). Add a test of the dashboard staleness behaviour, or move the staleness logic into a function that can be tested and test that.\n\n3. **A failed agent gets no finish line** — `template/.claude/skills/factory/runner.mjs:176`\n   Problem: The \"finished in …\" log is guarded by `result.ok`. Criterion 3 says \"Each agent ends with how long it took and its one-line reply\". A failed agent (`is_error`, non-zero exit) therefore ends with no duration and no reply, which is when that information is most useful. The `reply` in `runAgent` is also computed on failure.\n   Required change: Log the duration line whenever the agent wasn't aborted. Use e.g. `failed after 3m: <reply or error>` for the failing case, and add a test for it.\n\n## Coverage\n- Read: README.md, SPEC.md (diff only; doc changes), src/util.js, template/.claude/skills/factory/harness/claude-code.mjs, template/.claude/skills/factory/runner.mjs (hunks and surrounding code), template/factory/dashboard.html, test/fixtures/fake-claude.mjs, test/runner.test.js, src/dashboard.js (context: serves `activity/` from `factory/`)\n- Not read: None.\n\n## Suggestions (non-blocking)\n- `since()` in `dashboard.html` duplicates `elapsed()` in `runner.mjs`. They live in different runtimes, so this is acceptable, but a comment pointing to the twin would help.\n- `short()` in `agentStep` is rebuilt for every agent step; it could be hoisted next to `elapsed`.\n",
+          "repo": null
+        },
+        "pr12-ui-probe": {
+          "verdict": "CHANGES",
+          "blocking": 2,
+          "matched": 0,
+          "precision": 0,
+          "recall": 0,
+          "found": [],
+          "foundInLane": [],
+          "falsePositives": 0,
+          "controlsFlagged": [],
+          "findings": [
+            {
+              "n": 1,
+              "defects": [],
+              "controls": []
+            },
+            {
+              "n": 2,
+              "defects": [],
+              "controls": []
+            }
+          ],
+          "unmatched": 2,
+          "ok": true,
+          "error": null,
+          "cost": 0.3379,
+          "tokens": 344980,
+          "seconds": 64,
+          "model": "sonnet",
+          "review": "VERDICT: CHANGES\n\n# Code review — pr12-ui-probe, round 1\n\n## Summary\nThe static gates, numbered diff, worktree linking and review checking are well built and tested. `runProbe`, the part that decides what blocks, has no test at all (acceptance criteria 2, 3 and 5), and there is one parsing defect in `addedLines`, which the `scope: \"lines\"` gate relies on (criterion 7).\n\n## Blocking\n1. **No test runs the probe's compare-with-base flow** — `template/.claude/skills/factory/probe.mjs:634-735`, `:590-619`; `test/probe.test.js` (no `runProbe`/`baseCheckout` use; `grep` finds none in `test/`)\n   Problem: Criterion 2 (new failure blocks, pre-existing doesn't, uncomparable is unverified), criterion 3 (a change that breaks startup blocks) and criterion 5 (dependency-file change with no `worktree.setup` is unverified) are only implemented in `runProbe`/`baseCheckout`/`withServer`. The tests cover the pure helpers (`compareWithBase`, `findingsOf`, `parseScreens`), not the orchestration. Several branches have no test that would fail if they were wrong:\n   - the head fails to start and the base starts, which should give an `app-start` failure;\n   - the head fails to start and the base also fails or can't be built, which currently returns status `error` and does not block;\n   - `DEP_FILES` refusal;\n   - the base run covering only the `needsBase` visits;\n   - cleanup of the base checkout.\n   Required change: Add tests of `runProbe` with a stub Playwright/axe (or a tiny real server where those are installable). They should cover (a) a new failure blocks, (b) a failure that is also on the base is pre-existing, (c) a head startup failure with a working base gives an `app-start` failure, (d) a `package.json` change with no `worktree.setup` gives `unverified` plus a `baseNote`, and (e) the base checkout is removed afterwards.\n\n2. **`addedLines` can drop a file's added lines on a `+++ ` content line** — `template/.claude/skills/factory/round.mjs:165-166`\n   Problem: The file-header test is `line.startsWith('+++ ') && prev.startsWith('--- ')` with no check that the parser is outside a hunk. `numberDiff` guards this with `n === null`; `addedLines` does not. In a `-U0` diff, a removed line `-- x` followed by an added line `++ y` (for example in a `.patch`/`.diff` file) is read as a file header. `file` becomes `null` and all later added lines for that file are dropped. `splitProblems` then counts the problems on those lines as \"older\", and a `scope: \"lines\"` gate passes when it should fail, which is wrong for criterion 7.\n   Required change: Track whether a hunk is in progress, as `numberDiff` does (reset at `diff --git`, accept `---`/`+++` only before the first `@@`). Add a test with a hunk containing `-- x` / `++ y`.\n\n## Coverage\n- Read: README.md, SPEC.md (skimmed, docs only), package.json, src/util.js, template/.claude/agents/* (not line-by-line, outside the logic path), template/.claude/skills/factory/probe.mjs, round.mjs, runner.mjs, worktree.mjs, template/factory/config.json, test/probe.test.js, test/round.test.js, test/worktree.test.js, test/runner.test.js (grep and targeted reads of the probe, setup and gate tests), test/evals.test.js (grep only)\n- Not read: test/evals/run.mjs, test/evals/score.mjs, test/fixtures/fake-claude.mjs, SKILL.md and reviewer-contract.md bodies. They are the benchmark harness and prose, and I ran out of budget to read them fully.\n\n## Suggestions (non-blocking)\n- `splitProblems` sets the gate's exit to 0 when a failing linter prints only some `file:line` lines. If the same run also prints a location-less error, it is swallowed. Consider treating any non-matching, non-blank failure output as \"can't tell\" and counting every problem.\n- `probe.mjs` is about 770 lines doing parsing, in-page scripts, serving, base checkout and review checking. Consider splitting the review-check part (`probeIds`, `reviewGaps`, `checkReview`), which `runner.mjs` imports, into its own module so the runner doesn't load Playwright-adjacent code.\n",
+          "repo": null
+        }
+      }
+    }
+  ],
+  "rescored": "2026-11-17T09:42:30.229Z"
+}
