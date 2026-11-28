@@ -6,7 +6,7 @@ import { CliError, INSTALL_CMD, repoRoot } from './util.js';
 export const RUNNER_PATH = '.claude/skills/factory/runner.mjs';
 
 /**
- * Runs `run`, `approve` or `rework` with the runner installed in this repo, so it always
+ * Runs `run`, `approve`, `rework` or `retro` with the runner installed in this repo, so it always
  * matches the repo's skill and agents. Resolves with the exit code.
  */
 export async function runner(cwd, argv) {

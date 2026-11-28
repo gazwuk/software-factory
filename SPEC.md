@@ -73,12 +73,14 @@ Node >= 18.
     worktree.mjs                     # prepares new worktrees (links, setup) [package]
     usage.mjs                        # cost tracking (SubagentStop hook)  [package]
     board.mjs                        # locked board writes, job id claims [package]
+    retro.mjs                        # retro facts and the cross-job summary [package]
     runner.mjs                       # headless runner                    [package]
     harness/claude-code.mjs          # starts agents with claude -p       [package]
   agents/
     factory-spec-writer.md                                               [package]
     factory-builder.md                                                   [package]
     factory-approver.md                                                  [package]
+    factory-retro.md                                                     [package]
     factory-review-security.md                                           [package]
     factory-review-ux.md                                                 [package]
     factory-review-ui.md                                                 [package]
@@ -88,6 +90,7 @@ factory/
   config.json                        # tunables                          [user]
   project.md                         # repo profile, from /factory setup [user]
   backlog.md                         # feature queue                     [user]
+  retros/<date>.md                   # cross-job retro reports, from /factory retro [user]
   board.json                         # durable state, drives dashboard   [user, gitignored]
   usage.json                         # cost summary, rebuilt by usage.mjs [user, gitignored]
   .locks/                            # lock folders (pid inside, renamed into place): board, ids, backlog, ship, runner, job-<id> [gitignored]
@@ -105,6 +108,8 @@ factory/
     round-1/review-<reviewer>.md
     round-2/...                      # may also hold human.md and an earlier decision.md after a rework
     decision.md
+    retro.json                       # retro facts, from retro.mjs (after the job ships)
+    retro.md                         # causes and lessons, from the retro agent (not for clean jobs)
     usage/<agent-id>.json            # tokens, cost, active time per agent run
 .factory-worktrees/<job-id>/         # builder's git worktree            [gitignored]
 ```
@@ -145,8 +150,10 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
     "spec-writer": "opus",
     "builder": "opus",
     "builder-fix": "sonnet",
-    "approver": "opus"
+    "approver": "opus",
+    "retro": "sonnet"
   },
+  "retro": { "enabled": true },
   "reviewers": {
     "security": { "model": "sonnet", "enabled": true,
                   "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json"] },
@@ -177,6 +184,8 @@ Agent files are prefixed `factory-` so they don't collide with a repo's own agen
 - `reviewers.<key>.probe` (optional): the UI probe runs before this reviewer, see
   **UI probe**. `ui` configures it; an empty `ui.serve` turns it off.
 - `runner`: see **Runner**. `command` (optional) replaces the `claude` binary.
+- `retro.enabled`: run a retro after each job ships (see **Retro**). `false` turns
+  off the automatic one; `/factory retro <id>` still works.
 
 ## The loop
 
@@ -194,6 +203,8 @@ feature
   → approver                        writes decision.md
       APPROVE  → merge to baseBranch (or open PR); conflict → needs-human
       ESCALATE → needs-human  ◄── /factory approve | /factory rework
+  → retro (merged or pr-open)       retro.mjs writes retro.json; unless the job was clean,
+                                    the retro agent writes retro.md. Never changes the stage.
 ```
 
 ## Commands
@@ -211,6 +222,8 @@ feature
 | `/factory rework <job-id> <note>` | Send a needs-human job back to the builder. The note is saved as `round-N/human.md` beside that round's reviews (any `decision.md` moves there too, to keep history), and the job gets `maxRounds` more rounds. |
 | `/factory add-reviewer <name> <focus>` | Scaffold `factory-review-<name>.md` from the template and add it to config. |
 | `/factory status` | Print the board in the terminal. |
+| `/factory retro <job-id>` | Run (or re-run) the retro for a job that isn't active, clean or not. |
+| `/factory retro` | Tally recent retros, propose edits to `project.md`, config and the backlog for causes that recur, apply the ones the user accepts, and write `factory/retros/<date>.md`. |
 
 **One active job:** a job is active while its stage is `spec`, `build`, `review` or
 `approval`. Starting a job while another is active is refused (suggest `resume`).
@@ -262,6 +275,7 @@ own output file. Every agent reads `factory/project.md`.
 | builder | spec.md, latest round folder (if any), rework note | code + tests in the worktree, commits on `factory/<job-id>`; `build.md`: what changed, how each acceptance criterion is met, test output |
 | reviewer-* | spec.md, build.md, round.md (checks + its diff range), probe.md when the probe ran, worktree | `round-N/review-<name>.md`, first line `VERDICT: PASS` or `VERDICT: CHANGES`, then findings |
 | approver | everything in the job folder, diff, final round.md (re-runs checks only if the branch moved) | `decision.md`, first line `APPROVE` or `ESCALATE`, then reasoning |
+| retro | retro.json, everything in the job folder, project.md, config.json | `retro.md`: a cause (one fixed tag) for each item in retro.json's `why`, then lessons aimed at project.md, config, the backlog or a factory agent |
 
 Every agent replies to the orchestrator with one line; the detail is in its file.
 
@@ -468,6 +482,9 @@ always matches the repo's skill and agents.
 - **Ship:** merges, worktree changes and record commits in the main checkout happen
   under the `ship` lock, one at a time across processes. A conflict still goes to
   needs-human.
+- **Retro:** once a job it drives reaches `merged` or `pr-open` (including through
+  `approve`), the runner runs its retro while still holding the job's lock; see
+  **Retro**. `runner.mjs retro <id>` runs one on demand.
 
 ## Worktrees and git
 
@@ -547,7 +564,9 @@ One self-contained HTML file, no build step, no external requests.
   reviewer's reviews, changes asked (and rate), skips, cost and cost per review, plus
   cost by role, model and job.
 - Clicking a card opens a panel that renders the job's markdown files (spec, build,
-  each round's reviews, decision). `dashboard.html#job=<id>` links straight to it.
+  retro, each round's reviews, decision). `dashboard.html#job=<id>` links straight to it.
+- Stats' reviewer table adds, from finished jobs' `retro.json`, how many blocking
+  findings the builder disputed and how many of those the reviewer then dropped.
 - It discovers files by trying the paths the board implies, so it also works with
   any static server (`python3 -m http.server` included).
 - Clean and minimal; light and dark; single column on phones.
@@ -574,11 +593,104 @@ model (deduplicated by message id). Job id comes from the agent's first prompt (
   count tokens but no cost.
 - Never fails loudly in hook mode.
 
+## Retro
+
+After a job ships, the factory works out why it took the path it did and what would
+have saved the extra work, so the inputs every agent reads get better. It runs after
+the job's stage is final, so it can never hold up or undo a ship, and a retro that
+fails is logged and nothing else.
+
+**When:** automatically when a job reaches `merged` or `pr-open` and
+`config.retro.enabled` isn't `false`. `needs-human` isn't final, so it gets no
+automatic retro; `/factory retro <id>` runs one on any job that isn't active. A retro
+is done when `retro.json` matches the job's current stage and round, and, unless the
+job was clean, `retro.md` has a `## Causes` section. A job that later moves on (a
+needs-human job approved, say) gets a fresh one. There's no `retro` stage, so the
+"one active job" rule and resume are unchanged. A runner killed during a retro
+doesn't resume it; `/factory retro <id>` does.
+
+**Facts (`retro.mjs prepare <id>`):** deterministic, no model. Reads the board entry and
+the job folder and writes `retro.json`:
+
+- `rounds`, `roundLimit`, `reworks` (`human.md` files), `assumptions` (bullets in
+  spec.md's `## Assumptions`), `shippedBy` (`approver` when the board's decision is
+  APPROVE, else `human`).
+- `perRound`: for each round, its check fixes (`job.runner.checkFixes`, else builder
+  runs recorded for that round, less one for a round response), whether a human
+  stepped in or it escalated, and for each reviewer its verdict (SKIPPED when it
+  didn't run), model, blocking findings (numbered items under `## Blocking`), and how
+  many the builder's `## Round N response` says it fixed or disputed (`not changed`,
+  `not fixed`, `skipped`, `won't`, `disagree`).
+- `disputes`: each disputed finding and what the reviewer did next: `conceded` (PASS
+  next round), `held` (CHANGES again) or `open` (no next round).
+- `reviewers`: the same totals per reviewer across the job. `escalations`: every
+  ESCALATE decision with its reason. `cost`: total, by role, active seconds.
+- `why`: one line per thing that made the job less than clean: each extra round,
+  check fix, CHANGES verdict, human rework, escalation and human ship. `clean` is true
+  when `why` is empty. A clean job gets no agent. It prints one line of JSON.
+
+**Agent (`factory-retro`, `models.retro`, Sonnet by default):** read-only, writes
+only `retro.md`. It trusts retro.json's numbers and reads the files that explain each
+`why` line. Tools: Read, Grep, Glob, Bash (for `git show` on merged code), Write.
+
+```markdown
+# Retro — <job id>
+
+<two or three sentences: what shaped this job>
+
+## Causes
+- `spec-gap` — Screens had no empty state; ux #2 asked for one (round-1/review-ux.md)
+
+## Lessons
+- [project.md] Conventions: "Every list screen has an empty state with a next step."
+- [config] reviewers.ui.paths: add "src/screens/**" (ui skipped a CSS change in round 1)
+```
+
+Cause tags are a fixed set, so they can be counted across jobs: `request-gap` (the task
+was unclear or too big), `spec-gap`, `build-miss`, `missing-check` (a check would have
+caught it before review, or the builder didn't run one), `profile-gap` (project.md was
+missing or wrong about something), `reviewer-noise` (a blocking finding that wasn't a
+defect), `reviewer-miss` (a reviewer passed a defect someone found later),
+`flaky-check`, `environment` (worktree setup, servers, tools) and `policy` (escalated
+because the change needs a human by rule; nothing to learn). Lesson targets:
+`project.md`, `config`, `backlog`, `agent:<name>` (a factory prompt), `none`. A lesson
+is a concrete edit (the heading and the line, the key and the value), at most five per
+job. Lessons prefer project.md and config, which the repo owns: an edited factory
+agent file stops getting `update`s (it gets a `.new` beside it instead).
+
+**Commit:** in merge mode, Ship prepares the facts (`prepare <id> --stage merged`)
+just before the record commit, so retro.json goes in with the job record and a clean
+job needs no commit of its own. `prepare` leaves a retro.json alone when only its
+timestamp would change. After the retro agent, if the main checkout is on baseBranch,
+the job folder is committed again with a pathspec commit, `factory: retro job <id>`
+(retro.md and the retro agent's usage file), under the `ship` lock. Otherwise (PR
+mode, another branch checked out) it's left uncommitted and the runner says so.
+
+**Across jobs (`/factory retro`):** done by the orchestrator in the session, because
+it needs the user's yes. `retro.mjs summary [--last N]` (default 20) prints a markdown
+tally of the most recent retros: cause counts with the jobs behind each, and how many
+of those jobs aren't in an earlier report (each report's `Jobs:` line lists the jobs
+it covered); lessons grouped by target; each reviewer's reviews, change requests,
+blocking findings, disputed and conceded; and each job's rounds, check fixes, human
+help, who shipped it and its cost. The orchestrator then:
+
+1. Reads earlier `factory/retros/*.md`, so a proposal the user declined isn't made
+   again without new evidence.
+2. For each cause in two or more jobs, at least one new, reads those jobs' retro.md
+   and turns their lessons into one concrete proposal: an exact edit to project.md or
+   config.json, or a backlog task. `agent:<name>` lessons are listed as notes for the
+   user and never edited, for the `update` reason above. `policy` causes get none.
+3. Shows the proposals and applies only the ones the user accepts.
+4. Writes `factory/retros/<YYYY-MM-DD>.md` (`Jobs:` line, the summary, each proposal
+   with accepted or declined) and suggests committing it with the edits.
+
+Nothing in the factory edits its own instructions unattended.
+
 ## Package layout
 
 ```
 package.json        # name @gazwuk/software-factory (ready for npm later), single bin: software-factory, files: [bin, src, template]
-bin/cli.js          # arg parsing → init | update | dashboard | run | approve | rework
+bin/cli.js          # arg parsing → init | update | dashboard | run | approve | rework | retro
 src/                # init, update, dashboard server, manifest/hashing
 template/           # exactly what lands in the user's repo
 README.md

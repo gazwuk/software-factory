@@ -1,7 +1,7 @@
 ---
 name: factory
 description: Run the software factory. Takes a feature from spec to merged code through a spec-writer, a builder, parallel reviewers and an approver, tracked on factory/board.json. Only when the user invokes /factory.
-argument-hint: "<feature> | next | backlog [feature] | issue <number> | resume | status | setup | approve <job-id> | rework <job-id> <note> | add-reviewer <name> <focus>"
+argument-hint: "<feature> | next | backlog [feature] | issue <number> | resume | status | setup | approve <job-id> | rework <job-id> <note> | retro [job-id] | add-reviewer <name> <focus>"
 disable-model-invocation: true
 ---
 
@@ -26,7 +26,8 @@ agents **absolute** paths.
 | `factory/board.json` | Durable state; drives the dashboard. Change it only with board.mjs. |
 | `factory/backlog.md` | Task queue when `config.tasks.source` is `"backlog"`. |
 | `factory/lint/` | Config for the static UI gates (see **Setup**), when the repo has them. |
-| `factory/jobs/<id>/` | Job folder: `request.md`, `spec.md`, `build.md`, `round-N/`, `decision.md`. Always in the main checkout, never in a worktree. |
+| `factory/jobs/<id>/` | Job folder: `request.md`, `spec.md`, `build.md`, `round-N/`, `decision.md`, and after it ships `retro.json` and `retro.md`. Always in the main checkout, never in a worktree. |
+| `factory/retros/` | Cross-job retro reports from `/factory retro`. |
 | `.factory-worktrees/<id>/` | The builder's git worktree, on branch `factory/<id>`. |
 | `.claude/skills/factory/reviewer-contract.md` | Rules every reviewer follows. |
 | `.claude/skills/factory/round.mjs` | Runs the checks and picks the reviewers for a round. |
@@ -35,6 +36,7 @@ agents **absolute** paths.
 | `.claude/skills/factory/usage.mjs` | Records each agent's tokens and cost (a SubagentStop hook runs it). |
 | `.claude/skills/factory/board.mjs` | Changes one job on board.json under a lock; claims job ids. |
 | `.claude/skills/factory/runner.mjs` | The headless runner: the same loop in code, no session needed. |
+| `.claude/skills/factory/retro.mjs` | Works out a finished job's retro facts; tallies retros across jobs. |
 | `factory/.locks/` | Locks held by the runner and board.mjs. Never touch them. |
 | `factory/usage.json` | Cost summary for the dashboard, rebuilt by usage.mjs. Read it; never write it. |
 
@@ -51,6 +53,8 @@ feature — "Add CSV export" or "Setup CI for the docs site" start a **New job**
 | `issue <number>` | `issue` + `123` or `#123` | **Issue** |
 | `approve <job-id>` | `approve` + a job id on the board | **Approve** |
 | `rework <job-id> <note>` | `rework` + a job id on the board + text | **Rework** |
+| `retro` | the single word | **Retro report** |
+| `retro <job-id>` | `retro` + a job id on the board | **Retro** |
 | `add-reviewer <name> <focus>` | `add-reviewer` + kebab-case name + text | **Add reviewer** |
 | empty | | **Status**, then list the commands above |
 | anything else | | **New job**, with the whole argument string as the request |
@@ -76,8 +80,9 @@ tell the user it's running, that the dashboard shows progress, and how to stop i
 | `<feature>`, `issue <number>` | Do **New job** steps 1–2 yourself (and, for an issue, steps 1–3 of **Issue** and the claim), then start `node <abs>/runner.mjs run --job <id>`. |
 | `approve <job-id>` | Run `node <abs>/runner.mjs approve <job-id>` and report its last line. |
 | `rework <job-id> <note>` | Start `node <abs>/runner.mjs rework <job-id> '<note>'` (the note as one quoted argument). |
+| `retro <job-id>` | Run `node <abs>/runner.mjs retro <job-id>` and report its last line. |
 
-Everything else (`status`, `backlog`, `setup`, `add-reviewer`) runs here as usual.
+Everything else (`status`, `backlog`, `retro`, `setup`, `add-reviewer`) runs here as usual.
 
 ## The loop
 
@@ -95,6 +100,7 @@ request
   → approver                       jobs/<id>/decision.md
       APPROVE  → ship (merge or PR); conflict → needs-human
       ESCALATE → needs-human   ◄── /factory approve | /factory rework
+  → retro (merged or pr-open)      jobs/<id>/retro.json, and retro.md unless the job was clean
 ```
 
 ## Rules
@@ -141,6 +147,7 @@ Use the Agent tool (called Task in older Claude Code versions) with
 | builder (check or review fixes) | `factory-builder` | `config.models["builder-fix"]`, else `config.models.builder` |
 | reviewer `<name>` | `factory-review-<name>` | the `model` round.mjs chose for it |
 | approver | `factory-approver` | `config.models.approver` |
+| retro | `factory-retro` | `config.models.retro`, else `sonnet` |
 
 If a subagent type isn't found (for example, a reviewer added during this session),
 spawn a general-purpose agent instead and paste the body of
@@ -312,10 +319,14 @@ when the job has an issue, otherwise empty.
    `needs-human` with note `merge failed: <short reason>`, and stop. (The closing
    keyword makes GitHub close the issue when baseBranch is pushed.)
 4. `git worktree remove .factory-worktrees/<id>` and `git branch -d factory/<id>`.
-   Refresh the job's cost (see Rules) so the record includes it.
+   Refresh the job's cost (see Rules) so the record includes it. Unless
+   `config.retro.enabled` is `false`, also run
+   `node <abs>/.claude/skills/factory/retro.mjs prepare <id> --stage merged`, so the
+   retro's facts go in the record too (see **Retro**).
 5. Commit the job record, and nothing else the user has staged:
    `git add factory/jobs/<id> && git commit -m "factory: record job <id>" -- factory/jobs/<id>`
 6. Stage `merged`. If the job has an issue, comment and unlabel (see **GitHub issues**).
+7. Run **Retro**.
 
 **If `config.onApprove` is `"pr"`:**
 
@@ -327,11 +338,103 @@ when the job has an issue, otherwise empty.
 3. `git worktree remove .factory-worktrees/<id>` (keep the branch). Store `prUrl`,
    stage `pr-open`. The job record stays uncommitted; tell the user. If the job has an
    issue, comment and unlabel.
+4. Run **Retro**.
 
 If push or `gh` fails, stage `needs-human` with the error as the note.
 
-Finish by telling the user the outcome in one or two lines, with the job id and its
-estimated cost from `factory/usage.json`.
+Finish by telling the user the outcome in one or two lines, with the job id, its
+estimated cost from `factory/usage.json`, and the retro's result.
+
+## Retro
+
+Runs at the end of **Ship** (unless `config.retro.enabled` is `false`) and for
+`/factory retro <job-id>`. It explains why a finished job took the path it did, so
+the factory's inputs can improve. It never changes the job's stage, and a step that
+fails is reported to the user and nothing more: the job has shipped.
+
+For `/factory retro <job-id>`: if the job is active (`spec`, `build`, `review` or
+`approval`), say its retro runs when it ships and stop. If `board.mjs runner` lists
+it, a runner process has it: say so and stop. Otherwise run the steps below, and in
+step 2 run the agent even for a clean job, since the user asked.
+
+1. `node <abs>/.claude/skills/factory/retro.mjs prepare <id>`. It counts what the job's
+   files show (rounds, check fixes, each reviewer's findings, which ones the builder
+   disputed, human reworks, escalations, cost), writes `factory/jobs/<id>/retro.json`
+   (left as it is if Ship already wrote the same facts), and prints one line of JSON
+   with `clean` and `why`.
+2. `"clean": true` → there's nothing to explain: go to step 4. Otherwise delete any
+   old `retro.md` and spawn `factory-retro`:
+
+   ```
+   Retro for factory job <id>: <title>.
+   - Facts: <abs>/factory/jobs/<id>/retro.json
+   - Job folder: <abs>/factory/jobs/<id>/
+   - Project profile: <abs>/factory/project.md
+   - Config: <abs>/factory/config.json
+   - Output: <abs>/factory/jobs/<id>/retro.md
+   Reply with one line.
+   ```
+3. It must write `retro.md` with a `## Causes` section. If it didn't, spawn it once
+   more; still nothing → tell the user and stop.
+4. If the job is `merged` and the main checkout is on baseBranch, commit the retro
+   (skip the commit when nothing is staged, as for a clean job, whose retro.json went
+   in with the record):
+   `git add factory/jobs/<id> && git commit -m "factory: retro job <id>" -- factory/jobs/<id>`.
+   Otherwise leave it uncommitted, like the rest of a PR-mode job record.
+5. The retro's result, for the user: `clean`, or the cause tags from retro.md's
+   `## Causes` and its path.
+
+## Retro report
+
+`/factory retro`. You do this directly, with no agent, because every change it
+proposes needs the user's yes. Nothing here edits the factory's own files.
+
+1. Run `node <abs>/.claude/skills/factory/retro.mjs summary` (add `--last <n>` if the
+   user said how many jobs). It prints a tally of the most recent retros: causes and
+   the jobs behind each (New = jobs no earlier report covered), lessons grouped by
+   target, reviewer dispute counts, and each job's rounds, fixes and cost. No retros
+   → say so and stop.
+2. Read the earlier reports in `factory/retros/`. Don't make a proposal the user
+   declined there again unless new jobs add evidence, and if you do, say it was
+   declined before.
+3. Draft proposals. For each cause in two or more jobs, at least one of them new,
+   read those jobs' `retro.md` and turn their lessons into one concrete change:
+   - `project.md`: the heading and the exact lines to add or replace.
+   - `config`: the key, its current value and the new one.
+   - `backlog`: a task in the **Backlog** format.
+   - `agent:<name>`: a note for the user only. Never edit `.claude/agents/` or
+     `.claude/skills/factory/`: an edited factory file stops getting `update`s.
+   - `policy`: nothing to propose.
+
+   From the Reviewers table: a reviewer whose blocking findings the builder mostly
+   disputed and the reviewer then conceded is asking for things that aren't defects.
+   Propose narrowing its `paths`, or a project.md line about what this repo accepts.
+   A cause seen in one job only appears in the report, unless it's a `reviewer-miss`
+   a human caught.
+4. Show the proposals, numbered, each with the jobs behind it, and ask which to
+   apply. Apply only those: edit project.md and config.json (keep the JSON valid),
+   and add backlog tasks with `board.mjs backlog-add`.
+5. Write `factory/retros/<YYYY-MM-DD>.md` (add `-2`, `-3` if it exists):
+
+   ```markdown
+   # Retro report — <date>
+
+   Jobs: <every job id the summary covered, comma-separated>
+
+   ## Summary
+   <the summary's Causes and Reviewers tables>
+
+   ## Proposals
+   1. **<title>** — accepted. <what changed, where> (jobs: 004-…, 007-…)
+   2. **<title>** — declined. <what it would have changed> (jobs: …)
+
+   ## Notes for the factory
+   - <agent:<name> lessons, with their jobs>
+   ```
+
+   The `Jobs:` line is how the next report knows which jobs are new.
+6. Suggest committing the report with whatever it changed (`factory/retros/`,
+   `factory/project.md`, `factory/config.json`, `factory/backlog.md`).
 
 ---
 

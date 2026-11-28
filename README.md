@@ -4,7 +4,8 @@ A small, visual software factory for [Claude Code](https://claude.com/claude-cod
 One command adds a `/factory` skill, a team of subagents and a live dashboard to any
 git repo. You give it a feature; it writes a spec, builds it on a branch, runs your
 checks, puts it through the reviewers that matter for that change in parallel, and
-either merges it or asks you.
+either merges it or asks you. Afterwards a retro works out what made the job take
+extra work, so you can fix the cause for the next one.
 
 ```
                    feature
@@ -23,6 +24,8 @@ either merges it or asks you.
                    approver
              APPROVE ▼      ▼ ESCALATE
          merge to main      needs you ◄── /factory approve
+              ▼
+            retro  ── why it took the path it did, and what to change
 ```
 
 Everything is markdown and JSON in your repo, so you can read exactly what each agent
@@ -67,6 +70,8 @@ To pin a release, add the tag: `npx github:gazwuk/software-factory#v0.1.0 init`.
 | `/factory approve <job-id>` | Ship a job that's waiting for you |
 | `/factory rework <job-id> <note>` | Send a job back to the builder with your feedback |
 | `/factory add-reviewer <name> <focus>` | Add your own reviewer |
+| `/factory retro` | Find causes that recur across recent jobs, and propose fixes for you to accept |
+| `/factory retro <job-id>` | Run (or re-run) one finished job's retro |
 | `/factory setup` | Re-inspect the repo |
 
 Watch it work:
@@ -103,6 +108,7 @@ at a time.
 | `run --job <id>` | Run only this job |
 | `approve <id>` | Ship a job that needs a human |
 | `rework <id> <note>` | Send a job that needs a human back to the builder |
+| `retro <id>` | Run (or re-run) a finished job's retro |
 
 The runner prints each agent's tool calls as they happen (`[001-x] builder: Edit
 src/app.js`). A step that goes a minute without one gets a `still working` line, and
@@ -184,20 +190,22 @@ out.
   skills/factory/worktree.mjs    prepares new worktrees: links .env files, runs setup
   skills/factory/usage.mjs       records each agent's tokens and cost
   skills/factory/board.mjs       changes board.json under a lock; claims job ids
+  skills/factory/retro.mjs       counts what a finished job's files show; tallies retros
   skills/factory/runner.mjs      the headless runner
   skills/factory/harness/        how the runner starts agents (claude-code.mjs)
   settings.json                  gains a SubagentStop hook that runs usage.mjs
-  agents/factory-*.md            spec-writer, builder, approver, and one per reviewer
+  agents/factory-*.md            spec-writer, builder, approver, retro, and one per reviewer
 factory/
   config.json                    your settings
   project.md                     repo profile (from /factory setup)
   backlog.md                     feature queue
+  retros/                        reports from /factory retro
   board.json                     live state (gitignored)
   usage.json                     cost summary for the dashboard (gitignored)
   .locks/                        locks for the runner and board writes (gitignored)
   activity/                      what the headless runner is running now, for the dashboard (gitignored)
   dashboard.html
-  jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,probe.md,review-*.md}, decision.md, usage/
+  jobs/<id>/                     request.md, spec.md, build.md, round-N/{round.md,probe.md,review-*.md}, decision.md, retro.json, retro.md, usage/
 ```
 
 The builder works in a git worktree (`.factory-worktrees/<id>`, gitignored) on branch
@@ -220,7 +228,8 @@ folder is committed as a record of what happened.
               "maxParallelChecks": 1, "permissionMode": "dontAsk" },
   "ui": { "serve": "npm run dev -- --port {port}", "url": "http://localhost:{port}",
           "viewports": [320, 768, 1280], "themes": ["light", "dark"] },
-  "models": { "spec-writer": "opus", "builder": "opus", "builder-fix": "sonnet", "approver": "opus" },
+  "models": { "spec-writer": "opus", "builder": "opus", "builder-fix": "sonnet", "approver": "opus", "retro": "sonnet" },
+  "retro": { "enabled": true },
   "reviewers": {
     "security": { "model": "sonnet", "enabled": true,
                   "escalateModel": "opus", "escalatePaths": ["**/auth/**", "package.json", "…"] },
@@ -234,6 +243,8 @@ folder is committed as a record of what happened.
 - `maxRounds`: review rounds before a job is handed to you.
 - `models.builder-fix`: the builder's model for fixing failed checks and review
   findings. The first build and `/factory rework` use `models.builder`.
+- `retro.enabled`: run a [retro](#retros) after each job ships. `/factory retro <id>`
+  works either way.
 - `onApprove`: `"merge"` merges into `baseBranch` locally; `"pr"` pushes the branch
   and opens a pull request with `gh`.
 - `tasks.source`: `"backlog"` (factory/backlog.md) or `"github"` (open issues
@@ -337,6 +348,40 @@ override or add a price, put this in config (USD per million tokens):
 "pricing": { "claude-opus-5-5": { "input": 4, "output": 20, "cacheRead": 0.2 } }
 ```
 
+### Retros
+
+When a job ships, `retro.mjs` counts what its files show: review rounds, check fixes,
+each reviewer's blocking findings, which ones the builder answered with "not
+changed" and whether the reviewer then let them go, human reworks, escalations and
+cost. That goes in `retro.json`. If any of it made the job less than a clean pass,
+the `factory-retro` agent (Sonnet) reads the job's files and writes `retro.md`.
+For each extra loop it names a cause, and it proposes lessons:
+
+```markdown
+## Causes
+- `spec-gap` — Screens had no empty state for Orders; ux #2 asked for one (round-1/review-ux.md #2)
+- `missing-check` — 2 check fixes for lint errors the builder didn't run (round-1/round.md)
+
+## Lessons
+- [project.md] Conventions: "Every list screen has an empty state that says what to do next."
+- [config] checks.typecheck: "npx tsc --noEmit"
+```
+
+Causes come from a fixed list (`request-gap`, `spec-gap`, `build-miss`,
+`missing-check`, `profile-gap`, `reviewer-noise`, `reviewer-miss`, `flaky-check`,
+`environment`, `policy`), so they can be counted. A clean job gets no agent and no
+extra cost. The retro runs after the merge, so it never holds up or changes a job.
+It's committed with the job record. It's on the dashboard as the job's **Retro**
+tab, and Stats shows how many of each reviewer's findings were disputed and dropped.
+
+Nothing changes until you say so. `/factory retro` tallies recent retros, and for
+each cause that turns up in two or more jobs it proposes one concrete edit: to
+`factory/project.md`, `factory/config.json`, or a backlog task. You pick which to
+apply. It writes a report to `factory/retros/<date>.md`, so it won't propose what
+you declined again without new evidence. Lessons about the factory's own prompts are
+listed for you rather than applied, because an edited factory file stops getting
+`update`s.
+
 ### UI probe
 
 For web UIs, the UI and UX reviewers start from measurements instead of a diff.
@@ -399,6 +444,10 @@ version is kept and the new one is saved beside it as `.new` for you to merge
 
 Before updating, let any job running in a Claude Code session finish or stop, and
 start a new session afterwards so `/factory` loads the new skill.
+
+**Retros:** `update` adds `retro.mjs`, the `factory-retro` agent, `models.retro` and
+`retro.enabled` (on). Jobs that already shipped get no retro unless you run
+`/factory retro <id>`.
 
 **Upgrading to 0.3** (the headless runner): `update` adds `runner.mjs`, `board.mjs`
 and `harness/`, adds a `runner` section to config (`headless: false`, so `/factory`

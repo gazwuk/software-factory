@@ -14,6 +14,7 @@ Usage:
   ${INSTALL_CMD} run [options]        Run jobs headlessly, from the backlog or GitHub, until none are left
   ${INSTALL_CMD} approve <id>         Ship a job that needs a human
   ${INSTALL_CMD} rework <id> <note>   Send a job that needs a human back to the builder
+  ${INSTALL_CMD} retro <id>           Run (or re-run) the retro for a finished job
 
 Dashboard options:
   --port <number>   Port to serve on (default 4321, or the next free one)
@@ -44,7 +45,7 @@ function parse(argv) {
   return opts;
 }
 
-const RUNNER_COMMANDS = new Set(['run', 'approve', 'rework']);
+const RUNNER_COMMANDS = new Set(['run', 'approve', 'rework', 'retro']);
 
 async function main() {
   const argv = process.argv.slice(2);

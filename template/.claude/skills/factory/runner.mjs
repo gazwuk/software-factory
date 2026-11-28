@@ -7,6 +7,7 @@
 //   node runner.mjs run [--parallel N] [--job <id>]   run jobs until nothing is left
 //   node runner.mjs approve <job-id>                  ship a needs-human job
 //   node runner.mjs rework <job-id> <note>            send a needs-human job back to the builder
+//   node runner.mjs retro <job-id>                    run (or re-run) a finished job's retro
 //
 // Each step is worked out from the job's files (nextAction), so a runner that is
 // killed and started again carries on where it stopped.
@@ -21,10 +22,12 @@ import {
 } from './board.mjs';
 import { rebuildSummary, recordRun, refreshJob } from './usage.mjs';
 import { checkReview } from './probe.mjs';
+import { prepare as prepareRetro, retroDone, retroWritten } from './retro.mjs';
 import { isReady } from './worktree.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ACTIVE = new Set(['spec', 'build', 'review', 'approval']);
+const SHIPPED = new Set(['merged', 'pr-open']);
 const CHECK_FIX_LIMIT = 2;
 const TRIES = 2; // an agent that doesn't write its file runs once more
 const UNCONFIGURED = '<!-- factory:unconfigured -->';
@@ -34,7 +37,8 @@ const QUIET_MS = 60_000; // a step this long with no tool calls gets a "still wo
 const USAGE = `Usage:
   node runner.mjs run [--parallel N] [--job <id>]   run jobs until nothing is left
   node runner.mjs approve <job-id>                  ship a needs-human job
-  node runner.mjs rework <job-id> <note>            send a needs-human job back to the builder`;
+  node runner.mjs rework <job-id> <note>            send a needs-human job back to the builder
+  node runner.mjs retro <job-id>                    run (or re-run) a finished job's retro`;
 
 // ---------- files ----------
 
@@ -67,7 +71,10 @@ export function paths(root, job) {
     spec: join(jobDir, 'spec.md'),
     build: join(jobDir, 'build.md'),
     decision: join(jobDir, 'decision.md'),
+    retroFacts: join(jobDir, 'retro.json'),
+    retro: join(jobDir, 'retro.md'),
     project: join(root, 'factory/project.md'),
+    config: join(root, 'factory/config.json'),
     contract: join(HERE, 'reviewer-contract.md'),
     worktree: join(root, '.factory-worktrees', job.id),
     round: (n) => join(jobDir, `round-${n}`),
@@ -213,6 +220,16 @@ export const prompts = {
     `- Final round file: ${join(p.round(job.round || 0), 'round.md')}`,
     `- Project profile: ${p.project}`,
     `- Output: ${p.decision}`,
+    'Reply with one line.',
+  ].join('\n'),
+
+  retro: (p, job) => [
+    `Retro for factory job ${job.id}: ${job.title}.`,
+    `- Facts: ${p.retroFacts}`,
+    `- Job folder: ${p.jobDir}/`,
+    `- Project profile: ${p.project}`,
+    `- Config: ${p.config}`,
+    `- Output: ${p.retro}`,
     'Reply with one line.',
   ].join('\n'),
 };
@@ -483,6 +500,12 @@ async function ship(ctx, id, approval) {
       ctx.log(id, `couldn't delete ${branch}; delete it by hand`);
     }
     finishUsage(ctx, id);
+    // The retro's facts go in the record commit, so a clean job needs no commit of its own.
+    if (config.retro?.enabled !== false) {
+      try {
+        if (prepareRetro(root, id, { stage: 'merged' }).clean) ctx.log(id, 'retro: a clean job, nothing to explain (retro.json has the facts)');
+      } catch (err) { ctx.log(id, `retro: couldn't count the facts: ${errorText(err)}`); }
+    }
     try {
       git(['add', record], root);
       // Nothing staged means it's recorded already (a retried ship).
@@ -522,6 +545,70 @@ async function shipPr(ctx, job, approval) {
   ctx.log(job.id, `opened ${url} (the job record in factory/jobs/${job.id}/ is uncommitted)`);
   await ctx.gh.comment(done, `Opened ${url}.`);
   await ctx.gh.unlabel(done);
+}
+
+// ---------- retro ----------
+
+/**
+ * SKILL.md's Retro: retro.mjs works out the facts, then, unless the job was clean, the
+ * retro agent explains them in retro.md. It runs after the stage is final and never
+ * changes it; a retro that fails is logged. Automatic for merged and pr-open jobs whose
+ * retro isn't done yet; `force` (the retro command) runs it on any finished job, agent
+ * and all. Returns whether it finished.
+ */
+async function retro(ctx, id, { force = false } = {}) {
+  const { root, config } = ctx;
+  const job = getJob(root, id);
+  if (!job || ACTIVE.has(job.stage)) return false;
+  if (!force && (config.retro?.enabled === false || !SHIPPED.has(job.stage) || retroDone(root, job))) return true;
+  try {
+    const p = paths(root, job);
+    const facts = prepareRetro(root, id);
+    if (facts.clean && !force) {
+      ctx.log(id, 'retro: a clean job, nothing to explain (retro.json has the facts)');
+    } else if (!existsSync(join(root, '.claude/agents/factory-retro.md'))) {
+      ctx.log(id, 'retro: .claude/agents/factory-retro.md is missing, so only retro.json was written');
+      return false;
+    } else {
+      rmSync(p.retro, { force: true }); // an earlier stage's retro.md no longer applies
+      const ok = await agentStep(ctx, job, {
+        agent: 'retro', model: config.models.retro || 'sonnet', prompt: prompts.retro(p, job),
+        done: () => retroWritten(root, id),
+      });
+      if (!ok) {
+        ctx.log(id, `retro: no retro.md was written; run \`retro ${id}\` to try again`);
+        return false;
+      }
+    }
+    await commitRetro(ctx, id);
+    return true;
+  } catch (err) {
+    if (ctx.signal.aborted) throw err;
+    ctx.log(id, `retro failed: ${errorText(err)}`);
+    return false;
+  }
+}
+
+// A merged job's folder is already committed, so its retro gets a commit of its own.
+// Otherwise the job record is uncommitted anyway, and so is the retro.
+async function commitRetro(ctx, id) {
+  const { root, config } = ctx;
+  const record = `factory/jobs/${id}`;
+  if (getJob(root, id).stage !== 'merged') {
+    ctx.log(id, `retro written to ${record}/ (uncommitted, like the rest of the job record)`);
+    return;
+  }
+  await ctx.git(async () => {
+    if (gitTry(['symbolic-ref', '--short', 'HEAD'], root) !== config.baseBranch) {
+      ctx.log(id, `retro written to ${record}/, but not committed: ${config.baseBranch} isn't checked out`);
+      return;
+    }
+    git(['add', record], root);
+    // Nothing staged: a clean job's retro.json went in with the record commit.
+    if (gitTry(['diff', '--cached', '--quiet', '--', record], root) !== null) return;
+    git(['commit', '-q', '-m', `factory: retro job ${id}`, '--', record], root);
+    ctx.log(id, `retro committed: ${record}/retro.md`);
+  });
 }
 
 function removeWorktree(ctx, id) {
@@ -702,11 +789,11 @@ async function drive(ctx, id, { locked = false } = {}) {
     for (;;) {
       ctx.signal.throwIfAborted();
       let job = getJob(ctx.root, id);
-      if (!job || !ACTIVE.has(job.stage)) return;
+      if (!job || !ACTIVE.has(job.stage)) break;
       const facts = readFacts(ctx.root, ctx.config, job);
       job = reconcile(ctx, job, facts);
       const action = nextAction(job, facts);
-      if (!action) return;
+      if (!action) break;
       try {
         await perform(ctx, job, action, facts);
       } catch (err) {
@@ -714,6 +801,7 @@ async function drive(ctx, id, { locked = false } = {}) {
         await needsHuman(ctx, id, `runner error: ${errorText(err)}`);
       }
     }
+    await retro(ctx, id);
   } catch (err) {
     if (!ctx.signal.aborted) throw err;
   } finally {
@@ -943,7 +1031,7 @@ export async function main(argv, { root, log = console.log, error = console.erro
   let opts;
   try {
     opts = parseArgs(argv);
-    if (opts.help || !['run', 'approve', 'rework'].includes(opts.command)) {
+    if (opts.help || !['run', 'approve', 'rework', 'retro'].includes(opts.command)) {
       (opts.help ? log : error)(USAGE);
       return opts.help ? 0 : 2;
     }
@@ -952,7 +1040,7 @@ export async function main(argv, { root, log = console.log, error = console.erro
     if (!file) throw new Error('factory/config.json is missing or not valid JSON');
     const config = {
       ...file,
-      models: { 'spec-writer': 'opus', builder: 'opus', approver: 'opus', ...file.models },
+      models: { 'spec-writer': 'opus', builder: 'opus', approver: 'opus', retro: 'sonnet', ...file.models },
       runner: { harness: 'claude-code', parallel: 1, maxParallelChecks: 1, permissionMode: 'dontAsk', ...file.runner },
     };
     const ctx = {
@@ -988,9 +1076,15 @@ export async function main(argv, { root, log = console.log, error = console.erro
       if (!(await ownJob(ctx, id))) throw new Error(`Job ${id} is being run by another process; try again when it stops.`);
       try {
         const job = getJob(root, id);
+        if (opts.command === 'retro') {
+          if (ACTIVE.has(job.stage)) throw new Error(`Job ${id} is still running (${job.stage}); its retro runs when it ships.`);
+          if (!(await retro(ctx, id, { force: true })) && !controller.signal.aborted) return 1;
+          return controller.signal.aborted ? 130 : 0;
+        }
         if (job.stage !== 'needs-human') throw new Error(`Job ${id} is ${job.stage}; only a needs-human job can be ${opts.command === 'approve' ? 'approved' : 'reworked'}.`);
         if (opts.command === 'approve') {
           await ship(ctx, id, `approved by a human${job.note ? ` (it needed one because: ${job.note})` : ''}`);
+          await retro(ctx, id);
         } else {
           preflight(ctx);
           const n = job.round || 0;

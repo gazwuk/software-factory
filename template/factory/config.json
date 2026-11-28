@@ -32,7 +32,11 @@
     "spec-writer": "opus",
     "builder": "opus",
     "builder-fix": "sonnet",
-    "approver": "opus"
+    "approver": "opus",
+    "retro": "sonnet"
+  },
+  "retro": {
+    "enabled": true
   },
   "reviewers": {
     "security": {
